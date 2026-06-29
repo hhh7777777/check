@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'node:path'
 
-const CLOUD_FUNCTION_URL = process.env.VITE_CLOUDRUN_URL || 'http://localhost:3000'
+const CLOUD_FUNCTION_URL = process.env.VITE_CLOUDRUN_URL || 'http://localhost:80'
 
 export default defineConfig({
   plugins: [vue()],

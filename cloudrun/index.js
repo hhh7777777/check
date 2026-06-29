@@ -1,3 +1,4 @@
+try { require('dotenv').config() } catch (_) {}
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
@@ -64,6 +65,14 @@ function hasCloudCredentials() {
   return Boolean(CONFIG.envId && CONFIG.appId && CONFIG.appSecret);
 }
 
+function getMissingCloudCredentials() {
+  const missing = [];
+  if (!CONFIG.envId) missing.push('WX_ENV_ID');
+  if (!CONFIG.appId) missing.push('WX_APPID');
+  if (!CONFIG.appSecret) missing.push('WX_APPSECRET');
+  return missing;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -109,6 +118,10 @@ function verifyPassword(password, storedHash) {
 }
 
 async function getAccessToken() {
+  const missing = getMissingCloudCredentials();
+  if (missing.length > 0) {
+    throw new Error(`cloudrun missing required env vars: ${missing.join(', ')}`);
+  }
   const now = Date.now();
   if (accessTokenCache.token && accessTokenCache.expiresAt > now + 600000) {
     return accessTokenCache.token;
@@ -409,7 +422,16 @@ async function nextAttendeeCode(activityId) {
 async function ensureDefaultAdmin() {
   const { collection, rows } = await getCollectionRows(LEGACY_COLLECTIONS.admins);
   const admins = rows.map(normalizeAdmin);
-  if (admins.some((item) => item.username === CONFIG.defaultAdminUsername)) return;
+  const existing = admins.find((item) => item.username === CONFIG.defaultAdminUsername);
+  if (existing) {
+    await dbUpdateDoc(collection, existing._id, {
+      username: CONFIG.defaultAdminUsername,
+      passwordHash: hashPassword(CONFIG.defaultAdminPassword),
+      role: 'admin',
+      updatedAt: nowIso(),
+    });
+    return;
+  }
   await dbAdd(collection, {
     username: CONFIG.defaultAdminUsername,
     passwordHash: hashPassword(CONFIG.defaultAdminPassword),
@@ -616,7 +638,6 @@ async function updateActivityRecord(activityId, body) {
     throw error;
   }
   await dbUpdateDoc(COLLECTIONS.activities, activityId, {
-    ...current,
     title: normalizeText(body.title ?? current.title),
     startTime: normalizeText(body.startTime ?? current.startTime),
     endTime: normalizeText(body.endTime ?? current.endTime),
@@ -693,7 +714,12 @@ function authMiddleware(req, res, next) {
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || CONFIG.corsOrigins.length === 0 || CONFIG.corsOrigins.includes(origin)) {
+      if (
+        !origin ||
+        CONFIG.corsOrigins.length === 0 ||
+        CONFIG.corsOrigins.includes('*') ||
+        CONFIG.corsOrigins.includes(origin)
+      ) {
         callback(null, true);
         return;
       }
@@ -708,6 +734,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/health', async (_req, res, next) => {
   try {
+    const missing = getMissingCloudCredentials();
+    if (missing.length > 0) {
+      res.status(503).json({
+        status: 'degraded',
+        currentActivityId: null,
+        missingEnv: missing,
+        timestamp: nowIso(),
+      });
+      return;
+    }
     const current = await getCurrentActivity();
     res.json({ status: 'ok', currentActivityId: current ? current._id : null, timestamp: nowIso() });
   } catch (error) {
@@ -718,7 +754,7 @@ app.get('/health', async (_req, res, next) => {
 app.post('/api/admin/login', async (req, res, next) => {
   try {
     requireFields(req.body, ['username', 'password']);
-    await ensureDefaultAdmin();
+    await seedBaseData();
     const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
     const admin = admins.find((item) => item.username === req.body.username);
     if (!admin || !verifyPassword(req.body.password, admin.passwordHash)) {
@@ -738,7 +774,21 @@ app.post('/api/admin/login', async (req, res, next) => {
 
 app.get('/api/admin/dashboard', authMiddleware, async (req, res, next) => {
   try {
-    const activity = await getAdminActivity(req);
+    const activity = await getAdminActivity(req).catch((error) => {
+      if (error.statusCode === 400) {
+        return null;
+      }
+      throw error;
+    });
+    if (!activity) {
+      res.json({
+        activity: null,
+        attendeeCount: 0,
+        liveImageCount: 0,
+        updatedAt: '',
+      });
+      return;
+    }
     const attendees = await getAttendeesByActivity(activity._id);
     const images = await getLiveImagesByActivity(activity._id);
     res.json({
@@ -746,6 +796,23 @@ app.get('/api/admin/dashboard', authMiddleware, async (req, res, next) => {
       attendeeCount: attendees.length,
       liveImageCount: images.length,
       updatedAt: activity.updatedAt,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/bootstrap', async (_req, res, next) => {
+  try {
+    await seedBaseData();
+    const activities = await getActivities();
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+    const current = activities.find((item) => item.isCurrent) || null;
+    res.json({
+      success: true,
+      adminExists: admins.some((item) => item.username === CONFIG.defaultAdminUsername),
+      activityCount: activities.length,
+      currentActivityId: current ? current._id : null,
     });
   } catch (error) {
     next(error);
@@ -829,7 +896,6 @@ app.post('/api/admin/activities/:id/activate', authMiddleware, async (req, res, 
     }
     for (const item of activities) {
       await dbUpdateDoc(COLLECTIONS.activities, item._id, {
-        ...item,
         isCurrent: item._id === req.params.id,
         updatedAt: nowIso(),
       });
@@ -1269,7 +1335,11 @@ app.use((error, _req, res, _next) => {
 });
 
 async function startServer() {
-  await seedBaseData();
+  try {
+    await seedBaseData();
+  } catch (error) {
+    console.warn('seedBaseData failed (server will still start):', error.message);
+  }
   app.listen(CONFIG.port, '0.0.0.0', () => {
     console.log(`cloudrun listening on ${CONFIG.port}`);
   });
