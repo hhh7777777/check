@@ -1,1230 +1,1290 @@
-/**
- * WeChat Cloud Run Backend Service
- * Connects to WeChat Cloud Development database via HTTP API
- * Serves admin-web and H5 web version
- */
-
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const XLSX = require('xlsx');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
-const path = require('path');
 const multer = require('multer');
+const path = require('path');
 const cloudbase = require('@cloudbase/node-sdk');
 
-// ============================================================
-// Configuration
-// ============================================================
 const CONFIG = {
   appId: process.env.WX_APPID || '',
   appSecret: process.env.WX_APPSECRET || '',
   envId: process.env.WX_ENV_ID || '',
-  jwtSecret: process.env.JWT_SECRET || '',
-  port: parseInt(process.env.PORT || '80', 10),
-  corsOrigins: (process.env.CORS_ORIGINS || '').split(',').map((item) => item.trim()).filter(Boolean),
+  jwtSecret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-jwt-secret'),
+  port: Number(process.env.PORT || 80),
+  corsOrigins: (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean),
+  defaultAdminUsername: process.env.ADMIN_DEFAULT_USERNAME || 'admin',
+  defaultAdminPassword: process.env.ADMIN_DEFAULT_PASSWORD || 'admin123',
 };
 
 if (!CONFIG.jwtSecret) {
-  throw new Error('JWT_SECRET 环境变量未配置');
+  throw new Error('JWT_SECRET is required');
 }
 
+if (process.env.NODE_ENV !== 'production' && !process.env.JWT_SECRET) {
+  console.warn('JWT_SECRET is not set, using a local development fallback secret.');
+}
+
+const COLLECTIONS = {
+  activities: 'activities',
+  schedules: 'schedules',
+  attendees: 'attendees',
+  liveImages: 'live_images',
+  admins: 'admins',
+};
+
+const LEGACY_COLLECTIONS = {
+  activities: ['activities', 'activity'],
+  schedules: ['schedules', 'schedule'],
+  attendees: ['attendees', 'attendee'],
+  liveImages: ['live_images', 'live_image'],
+  admins: ['admins', 'admin'],
+};
+
+const app = express();
 const cloud = cloudbase.init({ env: CONFIG.envId || cloudbase.SYMBOL_CURRENT_ENV });
-const upload = multer({
+const imageUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (_req, file, callback) => callback(null, /^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)),
+  fileFilter: (_req, file, cb) => cb(null, /^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)),
 });
 const excelUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// ============================================================
-// Access Token Management
-// ============================================================
-let accessTokenCache = {
-  token: '',
-  expiresAt: 0,
-};
+let accessTokenCache = { token: '', expiresAt: 0 };
+
+function hasCloudCredentials() {
+  return Boolean(CONFIG.envId && CONFIG.appId && CONFIG.appSecret);
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
+function normalizePhone(value) {
+  return String(value || '').replace(/\s+/g, '').trim();
+}
+
+function validatePhone(phone) {
+  return /^[+\d][\d-]{3,20}$/.test(phone);
+}
+
+function toDateCode(dateText) {
+  const date = new Date(dateText || nowIso());
+  const source = Number.isNaN(date.getTime()) ? new Date() : date;
+  return `${source.getFullYear()}${String(source.getMonth() + 1).padStart(2, '0')}${String(
+    source.getDate()
+  ).padStart(2, '0')}`;
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  if (!storedHash) return false;
+  if (storedHash.startsWith('scrypt$')) {
+    const [, salt, hash] = storedHash.split('$');
+    if (!salt || !hash) return false;
+    const input = crypto.scryptSync(password, salt, 64).toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(input, 'hex'), Buffer.from(hash, 'hex'));
+  }
+  return sha256(password) === storedHash;
+}
 
 async function getAccessToken() {
   const now = Date.now();
-  // Refresh 10 minutes before expiry (1h50m = 6600000ms)
   if (accessTokenCache.token && accessTokenCache.expiresAt > now + 600000) {
     return accessTokenCache.token;
   }
-
   const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${CONFIG.appId}&secret=${CONFIG.appSecret}`;
-  const res = await fetch(url);
-  const data = await res.json();
-
+  const response = await fetch(url);
+  const data = await response.json();
   if (data.errcode) {
-    throw new Error(`Failed to get access_token: ${data.errmsg} (${data.errcode})`);
+    throw new Error(`failed to fetch access token: ${data.errmsg}`);
   }
-
-  accessTokenCache.token = data.access_token;
-  accessTokenCache.expiresAt = now + data.expires_in * 1000;
-  console.log('[AccessToken] Refreshed successfully');
+  accessTokenCache = {
+    token: data.access_token,
+    expiresAt: now + data.expires_in * 1000,
+  };
   return accessTokenCache.token;
 }
 
-// ============================================================
-// Cloud DB Helper Functions
-// ============================================================
-
-const COLLECTION_ALIASES = {
-  admin: 'admins',
-  schedule: 'schedules',
-  attendee: 'attendees',
-  live_image: 'live_images',
-};
-
-function collectionName(name) {
-  return COLLECTION_ALIASES[name] || name;
+async function requestDb(endpoint, payload) {
+  const token = await getAccessToken();
+  const response = await fetch(`https://api.weixin.qq.com/tcb/${endpoint}?access_token=${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ env: CONFIG.envId, ...payload }),
+  });
+  const result = await response.json();
+  if (result.errcode && result.errcode !== 0) {
+    throw new Error(`${endpoint} failed: ${result.errmsg} (${result.errcode})`);
+  }
+  return result;
 }
 
-function normalizeQuery(query) {
-  return Object.entries(COLLECTION_ALIASES).reduce(
-    (result, [from, to]) => result.replaceAll(`collection("${from}")`, `collection("${to}")`),
-    query
+function stringifyQueryValue(value) {
+  if (value instanceof Date) {
+    return `new Date("${value.toISOString()}")`;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stringifyQueryValue(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .map(([key, item]) => `${JSON.stringify(key)}:${stringifyQueryValue(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function dbQuery(query) {
+  const result = await requestDb('databasequery', { query });
+  return Array.isArray(result.data) ? result.data.map((item) => JSON.parse(item)) : [];
+}
+
+async function dbQueryAll(collection, where = null, orderBy = null) {
+  const rows = [];
+  const batchSize = 100;
+  let offset = 0;
+  while (true) {
+    const whereClause = where ? `.where(${stringifyQueryValue(where)})` : '';
+    const orderClause = orderBy ? `.orderBy("${orderBy.field}","${orderBy.order || 'asc'}")` : '';
+    const query = `db.collection("${collection}")${whereClause}${orderClause}.skip(${offset}).limit(${batchSize}).get()`;
+    const batch = await dbQuery(query);
+    rows.push(...batch);
+    if (batch.length < batchSize) break;
+    offset += batchSize;
+  }
+  return rows;
+}
+
+async function dbAdd(collection, data) {
+  return requestDb('databaseadd', {
+    query: `db.collection("${collection}").add({data:${stringifyQueryValue(data)}})`,
+  });
+}
+
+async function dbUpdateDoc(collection, id, data) {
+  const payload = { ...data };
+  delete payload._id;
+  delete payload._legacyId;
+  return requestDb('databaseupdate', {
+    query: `db.collection("${collection}").doc("${id}").update({data:${stringifyQueryValue(payload)}})`,
+  });
+}
+
+async function dbRemoveDoc(collection, id) {
+  return requestDb('databasedelete', {
+    query: `db.collection("${collection}").doc("${id}").remove()`,
+  });
+}
+
+async function getCollectionRows(candidates) {
+  for (const name of candidates) {
+    try {
+      return { collection: name, rows: await dbQueryAll(name) };
+    } catch (_error) {
+      // try next candidate
+    }
+  }
+  return { collection: candidates[0], rows: [] };
+}
+
+function normalizeActivity(item) {
+  return {
+    _id: item._id,
+    title: item.title || item.name || '',
+    startTime: item.startTime || item.start_time || '',
+    endTime: item.endTime || item.end_time || '',
+    location: item.location || '',
+    organizer: item.organizer || '',
+    coOrganizer: item.coOrganizer || item.co_organizer || '',
+    description: item.description || '',
+    trafficInfo: item.trafficInfo || item.traffic_info || '',
+    mapImageFileID: item.mapImageFileID || item.mapImageFileId || item.mapFileId || '',
+    coverImageFileID: item.coverImageFileID || item.coverImageFileId || item.coverFileId || '',
+    contactPhone: item.contactPhone || item.contact_phone || '',
+    contactPerson: item.contactPerson || item.contact_person || '',
+    createdAt: item.createdAt || item.created_at || '',
+    updatedAt: item.updatedAt || item.updated_at || '',
+    isCurrent: item.isCurrent === true || item.isCurrent === 1 || item.is_current === 1,
+  };
+}
+
+function normalizeSchedule(item) {
+  return {
+    _id: item._id,
+    activityId: item.activityId || item.activity_id || '',
+    date: item.date || '',
+    startTime: item.startTime || item.start_time || '',
+    endTime: item.endTime || item.end_time || '',
+    title: item.title || '',
+    location: item.location || '',
+    speaker: item.speaker || '',
+    remark: item.remark || '',
+    sortOrder: Number(item.sortOrder ?? item.sort_order ?? 0),
+    createdAt: item.createdAt || item.created_at || '',
+    updatedAt: item.updatedAt || item.updated_at || '',
+  };
+}
+
+function normalizeAttendee(item) {
+  const phone = normalizePhone(item.phone);
+  return {
+    _id: item._id,
+    activityId: item.activityId || item.activity_id || '',
+    attendeeCode: item.attendeeCode || item.attendee_code || '',
+    name: item.name || '',
+    phone,
+    phoneLast4: item.phoneLast4 || item.phone_last4 || phone.slice(-4),
+    organization: item.organization || '',
+    identityType: item.identityType || item.identity_type || '',
+    seatNo: item.seatNo || item.seat_no || '',
+    tableNo: item.tableNo || item.table_no || '',
+    diningPlace: item.diningPlace || item.dining_place || item.diningLocation || '',
+    hotelName: item.hotelName || item.hotel || item.hotel_name || '',
+    roomNo: item.roomNo || item.room_no || '',
+    remark: item.remark || '',
+    createdAt: item.createdAt || item.created_at || '',
+    updatedAt: item.updatedAt || item.updated_at || '',
+  };
+}
+
+function normalizeLiveImage(item) {
+  return {
+    _id: item._id,
+    activityId: item.activityId || item.activity_id || '',
+    title: item.title || '',
+    fileID: item.fileID || item.fileId || '',
+    sortOrder: Number(item.sortOrder ?? item.sort_order ?? 0),
+    isVisible:
+      item.isVisible === undefined && item.visible !== undefined
+        ? Boolean(item.visible)
+        : Boolean(item.isVisible),
+    imageUrl: item.imageUrl || item.url || '',
+    createdAt: item.createdAt || item.created_at || '',
+    updatedAt: item.updatedAt || item.updated_at || '',
+  };
+}
+
+function normalizeAdmin(item) {
+  return {
+    _id: item._id,
+    username: item.username || '',
+    passwordHash: item.passwordHash || item.password_hash || '',
+    role: item.role || 'admin',
+    createdAt: item.createdAt || item.created_at || '',
+  };
+}
+
+function attendeePublicView(item) {
+  return {
+    attendeeCode: item.attendeeCode,
+    name: item.name,
+    organization: item.organization,
+    identityType: item.identityType,
+    seatNo: item.seatNo,
+    tableNo: item.tableNo,
+    diningPlace: item.diningPlace,
+    hotelName: item.hotelName,
+    roomNo: item.roomNo,
+    remark: item.remark,
+    qrContent: item.attendeeCode ? `PASS:${item.attendeeCode}` : '',
+  };
+}
+
+async function getActivities() {
+  return (await getCollectionRows(LEGACY_COLLECTIONS.activities)).rows.map(normalizeActivity);
+}
+
+async function getActivityById(id) {
+  return (await getActivities()).find((item) => item._id === id) || null;
+}
+
+async function getCurrentActivity() {
+  const activities = await getActivities();
+  if (activities.length === 0) return null;
+  return (
+    activities.find((item) => item.isCurrent) ||
+    activities.slice().sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))[0]
   );
 }
 
-/**
- * Execute a cloud DB query
- * @param {string} query - Cloud DB query string
- * @returns {Array} Parsed results
- */
-async function cloudQuery(query) {
-  query = normalizeQuery(query);
-  const token = await getAccessToken();
-  const url = `https://api.weixin.qq.com/tcb/databasequery?access_token=${token}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ env: CONFIG.envId, query }),
-  });
-  const data = await res.json();
-  if (data.errcode && data.errcode !== 0) {
-    throw new Error(`Cloud query failed: ${data.errmsg} (${data.errcode})`);
+async function getAdminActivity(req) {
+  const requestedId = String(req.headers['x-activity-id'] || req.query.activityId || '').trim();
+  if (requestedId) {
+    const activity = await getActivityById(requestedId);
+    if (!activity) {
+      const error = new Error('活动不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+    return activity;
   }
-  // Each item in data.data is a JSON string that needs parsing
-  if (data.data && Array.isArray(data.data)) {
-    return data.data.map((item) => JSON.parse(item));
+  const activity = await getCurrentActivity();
+  if (!activity) {
+    const error = new Error('请先创建活动');
+    error.statusCode = 400;
+    throw error;
   }
-  return [];
+  return activity;
 }
 
-/**
- * Execute a cloud DB count
- * @param {string} collection - Collection name
- * @param {object} where - Where conditions
- * @returns {number} Count
- */
-async function cloudCount(collection, where = {}) {
-  collection = collectionName(collection);
-  const token = await getAccessToken();
-  const whereStr = Object.keys(where).length > 0 ? `.where(${JSON.stringify(where)})` : '';
-  const query = `db.collection("${collection}")${whereStr}.count()`;
-  const url = `https://api.weixin.qq.com/tcb/databasecount?access_token=${token}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ env: CONFIG.envId, query }),
-  });
-  const data = await res.json();
-  if (data.errcode && data.errcode !== 0) {
-    throw new Error(`Cloud count failed: ${data.errmsg} (${data.errcode})`);
-  }
-  return parseInt(data.count || '0', 10);
+async function getTempUrl(fileId) {
+  if (!fileId) return '';
+  const result = await cloud.getTempFileURL({ fileList: [fileId] });
+  return result.fileList && result.fileList[0] ? result.fileList[0].tempFileURL : '';
 }
 
-/**
- * Add a document to cloud DB
- * @param {string} collection - Collection name
- * @param {object} data - Document data
- * @returns {object} Created document with _id
- */
-async function cloudAdd(collection, data) {
-  collection = collectionName(collection);
-  const token = await getAccessToken();
-  const url = `https://api.weixin.qq.com/tcb/databaseadd?access_token=${token}`;
-  const query = `db.collection("${collection}").add({data:${JSON.stringify(data)}})`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ env: CONFIG.envId, query }),
-  });
-  const result = await res.json();
-  if (result.errcode && result.errcode !== 0) {
-    throw new Error(`Cloud add failed: ${result.errmsg} (${result.errcode})`);
+async function enrichActivity(activity) {
+  const next = { ...activity };
+  if (next.mapImageFileID) {
+    next.mapImageUrl = await getTempUrl(next.mapImageFileID);
   }
-  return result;
+  if (next.coverImageFileID) {
+    next.coverImageUrl = await getTempUrl(next.coverImageFileID);
+  }
+  return next;
 }
 
-/**
- * Update documents in cloud DB
- * @param {string} query - Full update query string
- * @returns {object} Update result
- */
-async function cloudUpdate(query) {
-  query = normalizeQuery(query);
-  const token = await getAccessToken();
-  const url = `https://api.weixin.qq.com/tcb/databaseupdate?access_token=${token}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ env: CONFIG.envId, query }),
-  });
-  const result = await res.json();
-  if (result.errcode && result.errcode !== 0) {
-    throw new Error(`Cloud update failed: ${result.errmsg} (${result.errcode})`);
-  }
-  return result;
+async function enrichImages(images) {
+  const fileList = images.map((item) => item.fileID).filter(Boolean);
+  if (fileList.length === 0) return images;
+  const result = await cloud.getTempFileURL({ fileList });
+  const urlMap = new Map((result.fileList || []).map((item) => [item.fileID, item.tempFileURL]));
+  return images.map((item) => ({ ...item, imageUrl: item.imageUrl || urlMap.get(item.fileID) || '' }));
 }
 
-/**
- * Delete documents from cloud DB
- * @param {string} query - Full delete query string
- * @returns {object} Delete result
- */
-async function cloudDelete(query) {
-  query = normalizeQuery(query);
-  const token = await getAccessToken();
-  const url = `https://api.weixin.qq.com/tcb/databasedelete?access_token=${token}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ env: CONFIG.envId, query }),
-  });
-  const result = await res.json();
-  if (result.errcode && result.errcode !== 0) {
-    throw new Error(`Cloud delete failed: ${result.errmsg} (${result.errcode})`);
-  }
-  return result;
+async function getSchedulesByActivity(activityId) {
+  return (await getCollectionRows(LEGACY_COLLECTIONS.schedules)).rows
+    .map(normalizeSchedule)
+    .filter((item) => item.activityId === activityId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`));
 }
 
-/**
- * Query all items from a collection (handles limit)
- * @param {string} collection - Collection name
- * @param {object} where - Optional where conditions
- * @returns {Array} All matching documents
- */
-async function cloudQueryAll(collection, where = {}, orderBy = null) {
-  collection = collectionName(collection);
-  // Cloud DB limits 100 items per query, so we paginate
-  let allResults = [];
-  const batchSize = 100;
-  let offset = 0;
-  let hasMore = true;
+async function getAttendeesByActivity(activityId) {
+  return (await getCollectionRows(LEGACY_COLLECTIONS.attendees)).rows
+    .map(normalizeAttendee)
+    .filter((item) => item.activityId === activityId);
+}
 
-  while (hasMore) {
-    let whereStr = Object.keys(where).length > 0 ? `.where(${JSON.stringify(where)})` : '';
-    let orderStr = orderBy ? `.orderBy("${orderBy.field}", "${orderBy.order || 'asc'}")` : '';
-    const query = `db.collection("${collection}")${whereStr}${orderStr}.skip(${offset}).limit(${batchSize}).get()`;
-    const token = await getAccessToken();
-    const url = `https://api.weixin.qq.com/tcb/databasequery?access_token=${token}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ env: CONFIG.envId, query }),
+async function getLiveImagesByActivity(activityId) {
+  return (await getCollectionRows(LEGACY_COLLECTIONS.liveImages)).rows
+    .map(normalizeLiveImage)
+    .filter((item) => item.activityId === activityId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function nextAttendeeCode(activityId) {
+  const activity = await getActivityById(activityId);
+  const prefix = `A${toDateCode(activity ? activity.startTime || activity.createdAt : nowIso())}`;
+  const attendees = await getAttendeesByActivity(activityId);
+  const max = attendees.reduce((result, item) => {
+    if (item.attendeeCode && item.attendeeCode.startsWith(prefix)) {
+      return Math.max(result, Number(item.attendeeCode.slice(prefix.length)) || 0);
+    }
+    return result;
+  }, 0);
+  return `${prefix}${String(max + 1).padStart(4, '0')}`;
+}
+
+async function ensureDefaultAdmin() {
+  const { collection, rows } = await getCollectionRows(LEGACY_COLLECTIONS.admins);
+  const admins = rows.map(normalizeAdmin);
+  if (admins.some((item) => item.username === CONFIG.defaultAdminUsername)) return;
+  await dbAdd(collection, {
+    username: CONFIG.defaultAdminUsername,
+    passwordHash: hashPassword(CONFIG.defaultAdminPassword),
+    role: 'admin',
+    createdAt: nowIso(),
+  });
+}
+
+async function seedBaseData() {
+  if (!hasCloudCredentials()) {
+    console.warn('WX_ENV_ID / WX_APPID / WX_APPSECRET not set, skipping cloud seed during local startup.');
+    return;
+  }
+  await ensureDefaultAdmin();
+  const activities = await getActivities();
+  if (activities.length === 0) {
+    await dbAdd(COLLECTIONS.activities, {
+      title: '内部活动',
+      startTime: '',
+      endTime: '',
+      location: '',
+      organizer: '',
+      coOrganizer: '',
+      description: '',
+      trafficInfo: '',
+      mapImageFileID: '',
+      coverImageFileID: '',
+      contactPhone: '',
+      contactPerson: '',
+      isCurrent: true,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
     });
-    const data = await res.json();
-    if (data.errcode && data.errcode !== 0) {
-      throw new Error(`Cloud queryAll failed: ${data.errmsg} (${data.errcode})`);
-    }
-    if (data.data && Array.isArray(data.data)) {
-      const parsed = data.data.map((item) => JSON.parse(item));
-      allResults = allResults.concat(parsed);
-      if (parsed.length < batchSize) {
-        hasMore = false;
-      } else {
-        offset += batchSize;
-      }
-    } else {
-      hasMore = false;
-    }
-  }
-  return allResults;
-}
-
-// ============================================================
-// Utility Functions
-// ============================================================
-function sha256(str) {
-  return crypto.createHash('sha256').update(str).digest('hex');
-}
-
-function generateAttendeeCode() {
-  return 'A' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2, 6).toUpperCase();
-}
-
-/**
- * Get the current activity ID (where is_current === 1)
- * @returns {string|null} Current activity _id
- */
-async function getCurrentActivityId() {
-  try {
-    const activities = await cloudQueryAll('activity', { is_current: 1 });
-    if (activities.length > 0) return activities[0]._id;
-    // Fallback: get first activity
-    const fallback = await cloudQueryAll('activity', {}, null);
-    if (fallback.length > 0) return fallback[0]._id;
-    return null;
-  } catch (err) {
-    console.error('[getCurrentActivityId] Error:', err.message);
-    return null;
   }
 }
 
-/**
- * Filter items by activity_id, including fallback items without activity_id
- * @param {Array} items - All items
- * @param {string|null} activityId - Current activity ID
- * @returns {Array} Filtered items
- */
-function filterByActivity(items, activityId) {
-  if (!activityId) return items;
-  return items.filter(item => item.activity_id === activityId || !item.activity_id);
+async function migrateLegacyData() {
+  const oldActivities = (await getCollectionRows(['activity'])).rows;
+  const oldSchedules = (await getCollectionRows(['schedule'])).rows;
+  const oldAttendees = (await getCollectionRows(['attendee'])).rows;
+  const oldImages = (await getCollectionRows(['live_image'])).rows;
+  const oldAdmins = (await getCollectionRows(['admin'])).rows;
+  const currentActivities = await dbQueryAll(COLLECTIONS.activities).catch(() => []);
+  const activityMap = new Map(currentActivities.map((item) => [item._legacyId, item._id]));
+
+  for (const raw of oldActivities) {
+    if (activityMap.has(raw._id)) continue;
+    const normalized = normalizeActivity(raw);
+    const result = await dbAdd(COLLECTIONS.activities, {
+      ...normalized,
+      _legacyId: raw._id,
+      createdAt: normalized.createdAt || nowIso(),
+      updatedAt: normalized.updatedAt || nowIso(),
+    });
+    const createdId = result.id_list && result.id_list[0];
+    if (createdId) activityMap.set(raw._id, createdId);
+  }
+
+  const migratedSchedules = await dbQueryAll(COLLECTIONS.schedules).catch(() => []);
+  for (const raw of oldSchedules) {
+    if (migratedSchedules.some((item) => item._legacyId === raw._id)) continue;
+    const normalized = normalizeSchedule(raw);
+    await dbAdd(COLLECTIONS.schedules, {
+      ...normalized,
+      activityId: activityMap.get(normalized.activityId) || normalized.activityId || '',
+      _legacyId: raw._id,
+      createdAt: normalized.createdAt || nowIso(),
+      updatedAt: normalized.updatedAt || nowIso(),
+    });
+  }
+
+  const migratedAttendees = await dbQueryAll(COLLECTIONS.attendees).catch(() => []);
+  for (const raw of oldAttendees) {
+    if (migratedAttendees.some((item) => item._legacyId === raw._id)) continue;
+    const normalized = normalizeAttendee(raw);
+    const activityId = activityMap.get(normalized.activityId) || normalized.activityId || '';
+    const attendeeCode = normalized.attendeeCode || (activityId ? await nextAttendeeCode(activityId) : '');
+    await dbAdd(COLLECTIONS.attendees, {
+      ...normalized,
+      attendeeCode,
+      activityId,
+      _legacyId: raw._id,
+      createdAt: normalized.createdAt || nowIso(),
+      updatedAt: normalized.updatedAt || nowIso(),
+    });
+  }
+
+  const migratedImages = await dbQueryAll(COLLECTIONS.liveImages).catch(() => []);
+  for (const raw of oldImages) {
+    if (migratedImages.some((item) => item._legacyId === raw._id)) continue;
+    const normalized = normalizeLiveImage(raw);
+    await dbAdd(COLLECTIONS.liveImages, {
+      ...normalized,
+      activityId: activityMap.get(normalized.activityId) || normalized.activityId || '',
+      _legacyId: raw._id,
+      createdAt: normalized.createdAt || nowIso(),
+      updatedAt: normalized.updatedAt || nowIso(),
+    });
+  }
+
+  const migratedAdmins = await dbQueryAll(COLLECTIONS.admins).catch(() => []);
+  for (const raw of oldAdmins) {
+    const normalized = normalizeAdmin(raw);
+    if (migratedAdmins.some((item) => item.username === normalized.username)) continue;
+    await dbAdd(COLLECTIONS.admins, {
+      ...normalized,
+      _legacyId: raw._id,
+      createdAt: normalized.createdAt || nowIso(),
+    });
+  }
+
+  await ensureDefaultAdmin();
 }
 
-async function refreshActivityMap(activity) {
-  if (!activity || !activity.mapFileId) return activity;
-  const result = await cloud.getTempFileURL({ fileList: [activity.mapFileId] });
-  const file = result.fileList && result.fileList[0];
-  return { ...activity, mapImage: (file && file.tempFileURL) || activity.mapImage };
-}
-
-async function refreshStorageUrls(items) {
-  const fileIds = items.map((item) => item.fileId).filter(Boolean);
-  if (fileIds.length === 0) return items;
-  const result = await cloud.getTempFileURL({ fileList: fileIds });
-  const urlMap = new Map((result.fileList || []).map((file) => [file.fileID, file.tempFileURL]));
-  return items.map((item) => ({
-    ...item,
-    url: (item.fileId && urlMap.get(item.fileId)) || item.url,
+async function parseImportRows(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  return rows.map((row) => ({
+    name: normalizeText(row['姓名'] ?? row.name),
+    phone: normalizePhone(row['手机号'] ?? row.phone),
+    organization: normalizeText(row['单位'] ?? row.organization),
+    identityType: normalizeText(row['身份类型'] ?? row.identityType),
+    seatNo: normalizeText(row['座位号'] ?? row.seatNo),
+    tableNo: normalizeText(row['餐桌号'] ?? row.tableNo),
+    diningPlace: normalizeText(row['用餐地点'] ?? row.diningPlace),
+    hotelName: normalizeText(row['酒店名称'] ?? row.hotelName),
+    roomNo: normalizeText(row['房间号'] ?? row.roomNo),
+    remark: normalizeText(row['备注'] ?? row.remark),
   }));
 }
 
-// ============================================================
-// JWT Middleware
-// ============================================================
-function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: '未授权，请先登录' });
+async function importAttendees(activityId, rows) {
+  const current = await getAttendeesByActivity(activityId);
+  const seen = new Set();
+  const errors = [];
+  let imported = 0;
+  let nextCode = null;
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const rowNo = index + 2;
+    if (!row.name || !row.phone) {
+      errors.push({ row: rowNo, message: '姓名和手机号不能为空' });
+      continue;
+    }
+    if (!validatePhone(row.phone)) {
+      errors.push({ row: rowNo, message: '手机号格式不正确' });
+      continue;
+    }
+    const uniqueKey = `${row.name}::${row.phone}`;
+    if (seen.has(uniqueKey)) {
+      errors.push({ row: rowNo, message: 'Excel 内存在重复人员' });
+      continue;
+    }
+    seen.add(uniqueKey);
+    if (current.some((item) => item.name === row.name && item.phone === row.phone)) {
+      errors.push({ row: rowNo, message: '该人员已存在于当前活动' });
+      continue;
+    }
+    if (!nextCode) {
+      nextCode = await nextAttendeeCode(activityId);
+    } else {
+      nextCode = `${nextCode.slice(0, -4)}${String(Number(nextCode.slice(-4)) + 1).padStart(4, '0')}`;
+    }
+    await dbAdd(COLLECTIONS.attendees, {
+      activityId,
+      attendeeCode: nextCode,
+      name: row.name,
+      phone: row.phone,
+      phoneLast4: row.phone.slice(-4),
+      organization: row.organization,
+      identityType: row.identityType,
+      seatNo: row.seatNo,
+      tableNo: row.tableNo,
+      diningPlace: row.diningPlace,
+      hotelName: row.hotelName,
+      roomNo: row.roomNo,
+      remark: row.remark,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    });
+    imported += 1;
   }
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = jwt.verify(token, CONFIG.jwtSecret);
-    req.admin = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Token无效或已过期' });
+
+  return { imported, errors };
+}
+
+function requireFields(body, fields) {
+  for (const field of fields) {
+    if (!normalizeText(body[field])) {
+      const error = new Error(`${field} is required`);
+      error.statusCode = 400;
+      throw error;
+    }
   }
 }
 
-// ============================================================
-// Express App Setup
-// ============================================================
-const app = express();
+async function updateActivityRecord(activityId, body) {
+  const current = await getActivityById(activityId);
+  if (!current) {
+    const error = new Error('活动不存在');
+    error.statusCode = 404;
+    throw error;
+  }
+  await dbUpdateDoc(COLLECTIONS.activities, activityId, {
+    ...current,
+    title: normalizeText(body.title ?? current.title),
+    startTime: normalizeText(body.startTime ?? current.startTime),
+    endTime: normalizeText(body.endTime ?? current.endTime),
+    location: normalizeText(body.location ?? current.location),
+    organizer: normalizeText(body.organizer ?? current.organizer),
+    coOrganizer: normalizeText(body.coOrganizer ?? current.coOrganizer),
+    description: normalizeText(body.description ?? current.description),
+    trafficInfo: normalizeText(body.trafficInfo ?? current.trafficInfo),
+    mapImageFileID: normalizeText(body.mapImageFileID ?? current.mapImageFileID),
+    coverImageFileID: normalizeText(body.coverImageFileID ?? current.coverImageFileID),
+    contactPhone: normalizeText(body.contactPhone ?? current.contactPhone),
+    contactPerson: normalizeText(body.contactPerson ?? current.contactPerson),
+    updatedAt: nowIso(),
+  });
+}
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || CONFIG.corsOrigins.length === 0 || CONFIG.corsOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error('该来源不在 CORS 白名单中'));
-  },
-  credentials: true,
-}));
+async function sendPublicActivity(_req, res) {
+  const activity = await getCurrentActivity();
+  res.json(activity ? await enrichActivity(activity) : {});
+}
+
+async function sendPublicSchedules(_req, res) {
+  const activity = await getCurrentActivity();
+  res.json(activity ? await getSchedulesByActivity(activity._id) : []);
+}
+
+async function sendPublicAttendee(req, res) {
+  requireFields(req.body, ['name', 'phoneLast4']);
+  const activity = await getCurrentActivity();
+  if (!activity) {
+    res.status(404).json({ error: '当前没有可用活动' });
+    return;
+  }
+  const phoneLast4 = normalizeText(req.body.phoneLast4);
+  if (phoneLast4.length !== 4) {
+    res.status(400).json({ error: '手机号后四位格式不正确' });
+    return;
+  }
+  const attendees = await getAttendeesByActivity(activity._id);
+  const target = attendees.find(
+    (item) => item.name === normalizeText(req.body.name) && item.phoneLast4 === phoneLast4
+  );
+  if (!target) {
+    res.status(404).json({ error: '暂未查询到您的参会信息，请联系工作人员。' });
+    return;
+  }
+  res.json(attendeePublicView(target));
+}
+
+async function sendPublicImages(_req, res) {
+  const activity = await getCurrentActivity();
+  if (!activity) {
+    res.json([]);
+    return;
+  }
+  const images = (await getLiveImagesByActivity(activity._id)).filter((item) => item.isVisible);
+  res.json(await enrichImages(images));
+}
+
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) {
+    res.status(401).json({ error: '未登录或登录已失效' });
+    return;
+  }
+  try {
+    req.admin = jwt.verify(header.slice(7), CONFIG.jwtSecret);
+    next();
+  } catch (_error) {
+    res.status(401).json({ error: '未登录或登录已失效' });
+  }
+}
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || CONFIG.corsOrigins.length === 0 || CONFIG.corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('CORS blocked'));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Serve static files (H5 web version)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/health', async (_req, res, next) => {
+  try {
+    const current = await getCurrentActivity();
+    res.json({ status: 'ok', currentActivityId: current ? current._id : null, timestamp: nowIso() });
+  } catch (error) {
+    next(error);
+  }
 });
 
-// ============================================================
-// Admin APIs
-// ============================================================
-
-// POST /api/admin/login
-app.post('/api/admin/login', async (req, res) => {
+app.post('/api/admin/login', async (req, res, next) => {
   try {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: '用户名和密码不能为空' });
+    requireFields(req.body, ['username', 'password']);
+    await ensureDefaultAdmin();
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+    const admin = admins.find((item) => item.username === req.body.username);
+    if (!admin || !verifyPassword(req.body.password, admin.passwordHash)) {
+      res.status(401).json({ error: '用户名或密码错误' });
+      return;
     }
-
-    // Query admin collection
-    const admins = await cloudQuery(
-      `db.collection("admin").where({username:${JSON.stringify(username)}}).get()`
-    );
-
-    if (admins.length === 0) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
-
-    const admin = admins[0];
-    const passwordHash = sha256(password);
-    if (admin.password_hash !== passwordHash) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
-
     const token = jwt.sign(
-      { username: admin.username, role: admin.role },
+      { adminId: admin._id, username: admin.username, role: admin.role },
       CONFIG.jwtSecret,
       { expiresIn: '24h' }
     );
+    res.json({ token, admin: { username: admin.username, role: admin.role } });
+  } catch (error) {
+    next(error);
+  }
+});
 
+app.get('/api/admin/dashboard', authMiddleware, async (req, res, next) => {
+  try {
+    const activity = await getAdminActivity(req);
+    const attendees = await getAttendeesByActivity(activity._id);
+    const images = await getLiveImagesByActivity(activity._id);
     res.json({
-      token,
-      username: admin.username,
-      role: admin.role,
+      activity: await enrichActivity(activity),
+      attendeeCount: attendees.length,
+      liveImageCount: images.length,
+      updatedAt: activity.updatedAt,
     });
-  } catch (err) {
-    console.error('[Login Error]', err);
-    res.status(500).json({ error: '登录失败: ' + err.message });
+  } catch (error) {
+    next(error);
   }
 });
 
-// GET /api/admin/dashboard
-app.get('/api/admin/dashboard', authMiddleware, async (req, res) => {
+app.get('/api/admin/activities', authMiddleware, async (_req, res, next) => {
   try {
-    const activityId = await getCurrentActivityId();
-    const whereClause = activityId ? { activity_id: activityId } : {};
-    const totalCount = await cloudCount('attendee', whereClause);
-    const checkedInCount = await cloudCount('attendee', { ...whereClause, checkin_status: true });
-    const rate = totalCount > 0 ? Math.round((checkedInCount / totalCount) * 10000) / 100 : 0;
+    const activities = await getActivities();
+    const attendees = (await getCollectionRows(LEGACY_COLLECTIONS.attendees)).rows.map(normalizeAttendee);
+    const images = (await getCollectionRows(LEGACY_COLLECTIONS.liveImages)).rows.map(normalizeLiveImage);
+    res.json(
+      activities
+        .map((activity) => ({
+          ...activity,
+          attendeeCount: attendees.filter((item) => item.activityId === activity._id).length,
+          liveImageCount: images.filter((item) => item.activityId === activity._id).length,
+        }))
+        .sort((a, b) => Number(b.isCurrent) - Number(a.isCurrent) || new Date(b.updatedAt) - new Date(a.updatedAt))
+    );
+  } catch (error) {
+    next(error);
+  }
+});
 
-    res.json({
-      totalAttendees: totalCount,
-      checkedInCount,
-      checkinRate: rate,
-      currentActivityId: activityId,
+app.post('/api/admin/activities', authMiddleware, async (req, res, next) => {
+  try {
+    requireFields(req.body, ['title']);
+    const activities = await getActivities();
+    await dbAdd(COLLECTIONS.activities, {
+      title: normalizeText(req.body.title),
+      startTime: normalizeText(req.body.startTime),
+      endTime: normalizeText(req.body.endTime),
+      location: normalizeText(req.body.location),
+      organizer: normalizeText(req.body.organizer),
+      coOrganizer: normalizeText(req.body.coOrganizer),
+      description: normalizeText(req.body.description),
+      trafficInfo: normalizeText(req.body.trafficInfo),
+      mapImageFileID: normalizeText(req.body.mapImageFileID),
+      coverImageFileID: normalizeText(req.body.coverImageFileID),
+      contactPhone: normalizeText(req.body.contactPhone),
+      contactPerson: normalizeText(req.body.contactPerson),
+      isCurrent: activities.length === 0,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
     });
-  } catch (err) {
-    console.error('[Dashboard Error]', err);
-    res.status(500).json({ error: '获取仪表盘数据失败: ' + err.message });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// GET /api/admin/activity
-app.get('/api/admin/activity', authMiddleware, async (req, res) => {
+app.get('/api/admin/activities/:id', authMiddleware, async (req, res, next) => {
   try {
-    const activities = await cloudQueryAll('activity', { is_current: 1 });
-    if (activities.length > 0) {
-      const activity = await refreshActivityMap(activities[0]);
-      return res.json({ ...activity, currentActivityId: activity._id });
+    const activity = await getActivityById(req.params.id);
+    if (!activity) {
+      res.status(404).json({ error: '活动不存在' });
+      return;
     }
-    // Fallback: get first activity
-    const fallback = await cloudQueryAll('activity');
-    const activity = fallback.length > 0 ? await refreshActivityMap(fallback[0]) : null;
-    res.json(activity ? { ...activity, currentActivityId: activity._id } : { currentActivityId: null });
-  } catch (err) {
-    console.error('[Activity Error]', err);
-    res.status(500).json({ error: '获取活动信息失败: ' + err.message });
+    res.json(await enrichActivity(activity));
+  } catch (error) {
+    next(error);
   }
 });
 
-// PUT /api/admin/activity
-app.put('/api/admin/activity', authMiddleware, async (req, res) => {
+app.put('/api/admin/activities/:id', authMiddleware, async (req, res, next) => {
   try {
-    const activities = await cloudQueryAll('activity', { is_current: 1 });
-    let activityList = activities;
-    if (activityList.length === 0) {
-      activityList = await cloudQueryAll('activity');
-    }
-
-    if (activityList.length > 0) {
-      const activityId = activityList[0]._id;
-      await cloudUpdate(
-        `db.collection("activity").doc("${activityId}").update({data:${JSON.stringify(req.body)}})`
-      );
-    } else {
-      await cloudAdd('activity', req.body);
-    }
-    res.json({ success: true, message: '活动信息已更新' });
-  } catch (err) {
-    console.error('[Update Activity Error]', err);
-    res.status(500).json({ error: '更新活动信息失败: ' + err.message });
+    await updateActivityRecord(req.params.id, req.body);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// ==================== 多活动管理 ====================
-
-// GET /api/admin/activities - 获取所有活动列表
-app.get('/api/admin/activities', authMiddleware, async (req, res) => {
+app.post('/api/admin/activities/:id/activate', authMiddleware, async (req, res, next) => {
   try {
-    const activities = await cloudQueryAll('activity');
-    
-    // Enrich with attendee counts
-    const enriched = [];
-    for (const activity of activities) {
-      const whereClause = { activity_id: activity._id };
-      const total = await cloudCount('attendee', whereClause);
-      const checkedIn = await cloudCount('attendee', { ...whereClause, checkin_status: true });
-      const checkinRate = total > 0 ? ((checkedIn / total) * 100).toFixed(1) : 0;
-      
-      enriched.push({
-        ...activity,
-        id: activity._id,
-        totalAttendees: total,
-        checkedIn,
-        checkinRate: parseFloat(checkinRate),
+    const activities = await getActivities();
+    if (!activities.some((item) => item._id === req.params.id)) {
+      res.status(404).json({ error: '活动不存在' });
+      return;
+    }
+    for (const item of activities) {
+      await dbUpdateDoc(COLLECTIONS.activities, item._id, {
+        ...item,
+        isCurrent: item._id === req.params.id,
+        updatedAt: nowIso(),
       });
     }
-    
-    res.json(enriched);
-  } catch (err) {
-    console.error('[Activities List Error]', err);
-    res.status(500).json({ error: '获取活动列表失败: ' + err.message });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// POST /api/admin/activities - 创建新活动
-app.post('/api/admin/activities', authMiddleware, async (req, res) => {
+app.delete('/api/admin/activities/:id', authMiddleware, async (req, res, next) => {
   try {
-    const now = new Date().toISOString();
-    const defaultTitle = req.body.title || `新活动 ${now.substring(0, 10)}`;
-    
-    const activityData = {
-      title: defaultTitle,
-      description: req.body.description || '',
-      location: req.body.location || '',
-      organizer: req.body.organizer || '',
-      start_time: req.body.start_time || '',
-      end_time: req.body.end_time || '',
-      is_current: 0,
-      created_at: now,
-      updated_at: now,
-    };
-    
-    const result = await cloudAdd('activity', activityData);
-    res.json({ success: true, id: result._id, message: '活动创建成功' });
-  } catch (err) {
-    console.error('[Create Activity Error]', err);
-    res.status(500).json({ error: '创建活动失败: ' + err.message });
+    const activity = await getActivityById(req.params.id);
+    if (!activity) {
+      res.status(404).json({ error: '活动不存在' });
+      return;
+    }
+    if (activity.isCurrent) {
+      res.status(400).json({ error: '当前活动不能删除，请先切换到其他活动' });
+      return;
+    }
+    const schedules = await getSchedulesByActivity(activity._id);
+    const attendees = await getAttendeesByActivity(activity._id);
+    const images = await getLiveImagesByActivity(activity._id);
+    if (schedules.length || attendees.length || images.length) {
+      res.status(400).json({ error: '该活动下仍有数据，请先清理日程、参会人和直播图片' });
+      return;
+    }
+    await dbRemoveDoc(COLLECTIONS.activities, activity._id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// PUT /api/admin/activities/:id - 更新指定活动
-app.put('/api/admin/activities/:id', authMiddleware, async (req, res) => {
+app.get('/api/admin/activity', authMiddleware, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const activities = await cloudQueryAll('activity');
-    const target = activities.find(a => a._id === id);
+    const activity = await getAdminActivity(req);
+    res.json(await enrichActivity(activity));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/admin/activity', authMiddleware, async (req, res, next) => {
+  try {
+    const activity = await getAdminActivity(req);
+    await updateActivityRecord(activity._id, req.body);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/schedules', authMiddleware, async (req, res, next) => {
+  try {
+    const activity = await getAdminActivity(req);
+    res.json(await getSchedulesByActivity(activity._id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/schedules', authMiddleware, async (req, res, next) => {
+  try {
+    const activity = await getAdminActivity(req);
+    requireFields(req.body, ['date', 'startTime', 'endTime', 'title']);
+    await dbAdd(COLLECTIONS.schedules, {
+      activityId: activity._id,
+      date: normalizeText(req.body.date),
+      startTime: normalizeText(req.body.startTime),
+      endTime: normalizeText(req.body.endTime),
+      title: normalizeText(req.body.title),
+      location: normalizeText(req.body.location),
+      speaker: normalizeText(req.body.speaker),
+      remark: normalizeText(req.body.remark),
+      sortOrder: Number(req.body.sortOrder || 0),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/admin/schedules/:id', authMiddleware, async (req, res, next) => {
+  try {
+    const schedules = (await getCollectionRows(LEGACY_COLLECTIONS.schedules)).rows.map(normalizeSchedule);
+    const target = schedules.find((item) => item._id === req.params.id);
     if (!target) {
-      return res.status(404).json({ error: '活动不存在' });
+      res.status(404).json({ error: '日程不存在' });
+      return;
     }
-    
-    const updateData = { ...req.body };
-    delete updateData.is_current;
-    delete updateData._id;
-    updateData.updated_at = new Date().toISOString();
-    
-    await cloudUpdate(
-      `db.collection("activity").doc("${id}").update({data:${JSON.stringify(updateData)}})`
-    );
-    res.json({ success: true, message: '活动更新成功' });
-  } catch (err) {
-    console.error('[Update Activity Error]', err);
-    res.status(500).json({ error: '更新活动失败: ' + err.message });
+    await dbUpdateDoc(COLLECTIONS.schedules, target._id, {
+      ...target,
+      date: normalizeText(req.body.date ?? target.date),
+      startTime: normalizeText(req.body.startTime ?? target.startTime),
+      endTime: normalizeText(req.body.endTime ?? target.endTime),
+      title: normalizeText(req.body.title ?? target.title),
+      location: normalizeText(req.body.location ?? target.location),
+      speaker: normalizeText(req.body.speaker ?? target.speaker),
+      remark: normalizeText(req.body.remark ?? target.remark),
+      sortOrder: Number(req.body.sortOrder ?? target.sortOrder ?? 0),
+      updatedAt: nowIso(),
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// DELETE /api/admin/activities/:id - 删除活动
-app.delete('/api/admin/activities/:id', authMiddleware, async (req, res) => {
+app.delete('/api/admin/schedules/:id', authMiddleware, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const activities = await cloudQueryAll('activity');
-    const target = activities.find(a => a._id === id);
-    if (!target) {
-      return res.status(404).json({ error: '活动不存在' });
-    }
-    if (target.is_current === 1) {
-      return res.status(400).json({ error: '不能删除当前活动，请先切换到其他活动' });
-    }
-    
-    await cloudDelete(`db.collection("activity").doc("${id}").remove()`);
-    res.json({ success: true, message: '活动删除成功' });
-  } catch (err) {
-    console.error('[Delete Activity Error]', err);
-    res.status(500).json({ error: '删除活动失败: ' + err.message });
+    await dbRemoveDoc(COLLECTIONS.schedules, req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// POST /api/admin/activities/:id/activate - 设为当前活动
-app.post('/api/admin/activities/:id/activate', authMiddleware, async (req, res) => {
+app.get('/api/admin/attendees', authMiddleware, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const activities = await cloudQueryAll('activity');
-    
-    // Set all activities to is_current: 0
-    for (const act of activities) {
-      if (act.is_current === 1) {
-        await cloudUpdate(
-          `db.collection("activity").doc("${act._id}").update({data:${JSON.stringify({ is_current: 0, updated_at: new Date().toISOString() })}})`
-        );
-      }
-    }
-    
-    // Set target activity to is_current: 1
-    await cloudUpdate(
-      `db.collection("activity").doc("${id}").update({data:${JSON.stringify({ is_current: 1, updated_at: new Date().toISOString() })}})`
-    );
-    
-    res.json({ success: true, message: '活动已切换为当前活动' });
-  } catch (err) {
-    console.error('[Activate Activity Error]', err);
-    res.status(500).json({ error: '切换活动失败: ' + err.message });
-  }
-});
-
-// GET /api/admin/schedules
-app.get('/api/admin/schedules', authMiddleware, async (req, res) => {
-  try {
-    const activityId = await getCurrentActivityId();
-    const whereClause = activityId ? { activity_id: activityId } : {};
-    let schedules = await cloudQueryAll('schedule', whereClause, { field: 'sortOrder', order: 'asc' });
-    
-    // Fallback: include schedules without activity_id
-    if (activityId) {
-      const allSchedules = await cloudQueryAll('schedule');
-      const fbSchedules = allSchedules.filter(s => !s.activity_id);
-      schedules = schedules.concat(fbSchedules);
-    }
-    
-    res.json(schedules);
-  } catch (err) {
-    console.error('[Schedules Error]', err);
-    res.status(500).json({ error: '获取日程列表失败: ' + err.message });
-  }
-});
-
-// POST /api/admin/schedules
-app.post('/api/admin/schedules', authMiddleware, async (req, res) => {
-  try {
-    const activityId = await getCurrentActivityId();
-    const scheduleData = {
-      activity_id: activityId || '',
-      date: req.body.date || '',
-      startTime: req.body.startTime || '',
-      endTime: req.body.endTime || '',
-      title: req.body.title || '',
-      location: req.body.location || '',
-      speaker: req.body.speaker || '',
-      remark: req.body.remark || '',
-      sortOrder: req.body.sortOrder || 0,
-      createdAt: new Date().toISOString(),
-    };
-    const result = await cloudAdd('schedule', scheduleData);
-    res.json({ success: true, id: result._id, message: '日程已添加' });
-  } catch (err) {
-    console.error('[Add Schedule Error]', err);
-    res.status(500).json({ error: '添加日程失败: ' + err.message });
-  }
-});
-
-// PUT /api/admin/schedules/:id
-app.put('/api/admin/schedules/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    // Find the schedule by custom id field
-    const schedules = await cloudQueryAll('schedule');
-    const target = schedules.find((s) => s._id === id || s.id === id);
-    if (!target) {
-      return res.status(404).json({ error: '日程不存在' });
-    }
-    const docId = target._id;
-    await cloudUpdate(
-      `db.collection("schedule").doc("${docId}").update({data:${JSON.stringify(req.body)}})`
-    );
-    res.json({ success: true, message: '日程已更新' });
-  } catch (err) {
-    console.error('[Update Schedule Error]', err);
-    res.status(500).json({ error: '更新日程失败: ' + err.message });
-  }
-});
-
-// DELETE /api/admin/schedules/:id
-app.delete('/api/admin/schedules/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const schedules = await cloudQueryAll('schedule');
-    const target = schedules.find((s) => s._id === id || s.id === id);
-    if (!target) {
-      return res.status(404).json({ error: '日程不存在' });
-    }
-    const docId = target._id;
-    await cloudDelete(`db.collection("schedule").doc("${docId}").remove()`);
-    res.json({ success: true, message: '日程已删除' });
-  } catch (err) {
-    console.error('[Delete Schedule Error]', err);
-    res.status(500).json({ error: '删除日程失败: ' + err.message });
-  }
-});
-
-// GET /api/admin/attendees
-app.get('/api/admin/attendees', authMiddleware, async (req, res) => {
-  try {
-    const page = parseInt(req.query.page || '1', 10);
-    const pageSize = parseInt(req.query.pageSize || '20', 10);
-    const keyword = req.query.keyword || '';
-
-    const activityId = await getCurrentActivityId();
-    let allAttendees = await cloudQueryAll('attendee');
-    
-    // Filter by activity_id (current + fallback without activity_id)
-    allAttendees = filterByActivity(allAttendees, activityId);
-
-    // Keyword search - filter by name, phone, organization, attendeeCode
+    const activity = await getAdminActivity(req);
+    const keyword = normalizeText(req.query.keyword || '');
+    let attendees = await getAttendeesByActivity(activity._id);
     if (keyword) {
-      const kw = keyword.toLowerCase();
-      allAttendees = allAttendees.filter((a) => {
-        return (
-          (a.name && a.name.toLowerCase().includes(kw)) ||
-          (a.phone && a.phone.includes(kw)) ||
-          (a.organization && a.organization.toLowerCase().includes(kw)) ||
-          (a.attendeeCode && a.attendeeCode.toLowerCase().includes(kw))
-        );
-      });
+      attendees = attendees.filter((item) =>
+        [item.name, item.phone, item.organization, item.attendeeCode].some((field) => field.includes(keyword))
+      );
     }
-
-    const total = allAttendees.length;
-    const start = (page - 1) * pageSize;
-    const list = allAttendees.slice(start, start + pageSize);
-
+    const page = Number(req.query.page || 1);
+    const pageSize = Number(req.query.pageSize || 10);
     res.json({
-      list,
-      total,
+      list: attendees.slice((page - 1) * pageSize, page * pageSize),
+      total: attendees.length,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
     });
-  } catch (err) {
-    console.error('[Attendees Error]', err);
-    res.status(500).json({ error: '获取参会人员列表失败: ' + err.message });
+  } catch (error) {
+    next(error);
   }
 });
 
-// POST /api/admin/attendees/import
-app.post('/api/admin/attendees/import', authMiddleware, excelUpload.single('file'), async (req, res) => {
+app.post('/api/admin/attendees/import', authMiddleware, excelUpload.single('file'), async (req, res, next) => {
   try {
-    let attendees = req.body.attendees;
-    if (req.file) {
-      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
-      attendees = rows.map((row) => ({
-        name: row.name || row['姓名'],
-        phone: String(row.phone || row['手机号'] || ''),
-        organization: row.organization || row['单位'],
-        identityType: row.identityType || row['身份类型'],
-        seatNo: row.seatNo || row['座位号'],
-        tableNo: row.tableNo || row['餐桌号'],
-        hotel: row.hotel || row['酒店'],
-        roomNo: row.roomNo || row['房间号'],
-        diningPlace: row.diningPlace || row['用餐地点'],
-        remark: row.remark || row['备注'],
-      }));
+    const activity = await getAdminActivity(req);
+    if (!req.file) {
+      res.status(400).json({ error: '请上传 Excel 文件' });
+      return;
     }
-    if (!Array.isArray(attendees) || attendees.length === 0) {
-      return res.status(400).json({ error: '参会人员数据不能为空' });
-    }
-
-    const activityId = await getCurrentActivityId();
-    let imported = 0;
-    for (const item of attendees) {
-      const attendeeData = {
-        activity_id: activityId || '',
-        name: item.name || '',
-        phone: item.phone || '',
-        organization: item.organization || '',
-        identityType: item.identityType || '',
-        seatNo: item.seatNo || '',
-        tableNo: item.tableNo || '',
-        hotel: item.hotel || '',
-        roomNo: item.roomNo || '',
-        attendeeCode: item.attendeeCode || generateAttendeeCode(),
-        checkin_status: false,
-        checkin_time: '',
-        remark: item.remark || '',
-        diningPlace: item.diningPlace || '',
-        createdAt: new Date().toISOString(),
-      };
-      await cloudAdd('attendee', attendeeData);
-      imported++;
-    }
-
-    res.json({ success: true, imported, message: `成功导入 ${imported} 条参会人员` });
-  } catch (err) {
-    console.error('[Import Attendees Error]', err);
-    res.status(500).json({ error: '导入参会人员失败: ' + err.message });
+    const rows = await parseImportRows(req.file.buffer);
+    res.json(await importAttendees(activity._id, rows));
+  } catch (error) {
+    next(error);
   }
 });
 
-// PUT /api/admin/attendees/:id
-app.put('/api/admin/attendees/:id', authMiddleware, async (req, res) => {
+app.put('/api/admin/attendees/:id', authMiddleware, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const attendees = await cloudQueryAll('attendee');
-    const target = attendees.find((a) => a._id === id || a.id === id);
+    const attendees = (await getCollectionRows(LEGACY_COLLECTIONS.attendees)).rows.map(normalizeAttendee);
+    const target = attendees.find((item) => item._id === req.params.id);
     if (!target) {
-      return res.status(404).json({ error: '参会人员不存在' });
+      res.status(404).json({ error: '参会人员不存在' });
+      return;
     }
-    const docId = target._id;
-    await cloudUpdate(
-      `db.collection("attendee").doc("${docId}").update({data:${JSON.stringify(req.body)}})`
-    );
-    res.json({ success: true, message: '参会人员已更新' });
-  } catch (err) {
-    console.error('[Update Attendee Error]', err);
-    res.status(500).json({ error: '更新参会人员失败: ' + err.message });
+    const phone = normalizePhone(req.body.phone ?? target.phone);
+    if (!validatePhone(phone)) {
+      res.status(400).json({ error: '手机号格式不正确' });
+      return;
+    }
+    await dbUpdateDoc(COLLECTIONS.attendees, target._id, {
+      ...target,
+      name: normalizeText(req.body.name ?? target.name),
+      phone,
+      phoneLast4: phone.slice(-4),
+      organization: normalizeText(req.body.organization ?? target.organization),
+      identityType: normalizeText(req.body.identityType ?? target.identityType),
+      seatNo: normalizeText(req.body.seatNo ?? target.seatNo),
+      tableNo: normalizeText(req.body.tableNo ?? target.tableNo),
+      diningPlace: normalizeText(req.body.diningPlace ?? target.diningPlace),
+      hotelName: normalizeText(req.body.hotelName ?? target.hotelName),
+      roomNo: normalizeText(req.body.roomNo ?? target.roomNo),
+      remark: normalizeText(req.body.remark ?? target.remark),
+      updatedAt: nowIso(),
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// DELETE /api/admin/attendees/:id
-app.delete('/api/admin/attendees/:id', authMiddleware, async (req, res) => {
+app.delete('/api/admin/attendees/:id', authMiddleware, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const attendees = await cloudQueryAll('attendee');
-    const target = attendees.find((a) => a._id === id || a.id === id);
-    if (!target) {
-      return res.status(404).json({ error: '参会人员不存在' });
-    }
-    const docId = target._id;
-    await cloudDelete(`db.collection("attendee").doc("${docId}").remove()`);
-    res.json({ success: true, message: '参会人员已删除' });
-  } catch (err) {
-    console.error('[Delete Attendee Error]', err);
-    res.status(500).json({ error: '删除参会人员失败: ' + err.message });
+    await dbRemoveDoc(COLLECTIONS.attendees, req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// GET /api/admin/attendees/export
-app.get('/api/admin/attendees/export', authMiddleware, async (req, res) => {
+app.get('/api/admin/attendees/export', authMiddleware, async (req, res, next) => {
   try {
-    const activityId = await getCurrentActivityId();
-    let attendees = await cloudQueryAll('attendee');
-    
-    // Filter by activity_id
-    attendees = filterByActivity(attendees, activityId);
-
-    const exportData = attendees.map((a, index) => ({
-      '序号': index + 1,
-      '姓名': a.name || '',
-      '手机号': a.phone || '',
-      '单位': a.organization || '',
-      '身份类型': a.identityType || '',
-      '座位号': a.seatNo || '',
-      '桌号': a.tableNo || '',
-      '酒店': a.hotel || '',
-      '房间号': a.roomNo || '',
-      '签到码': a.attendeeCode || '',
-      '签到状态': a.checkin_status ? '已签到' : '未签到',
-      '签到时间': a.checkin_time || '',
-      '用餐地点': a.diningPlace || '',
-      '备注': a.remark || '',
+    const activity = await getAdminActivity(req);
+    const rows = (await getAttendeesByActivity(activity._id)).map((item) => ({
+      姓名: item.name,
+      手机号: item.phone,
+      单位: item.organization,
+      身份类型: item.identityType,
+      座位号: item.seatNo,
+      餐桌号: item.tableNo,
+      用餐地点: item.diningPlace,
+      酒店名称: item.hotelName,
+      房间号: item.roomNo,
+      备注: item.remark,
+      参会码: item.attendeeCode,
     }));
-
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '参会人员');
-
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, '参会人员');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=' + encodeURIComponent('参会人员名单.xlsx'));
+    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('attendees.xlsx')}`);
     res.send(buffer);
-  } catch (err) {
-    console.error('[Export Attendees Error]', err);
-    res.status(500).json({ error: '导出参会人员失败: ' + err.message });
+  } catch (error) {
+    next(error);
   }
 });
 
-// GET /api/admin/checkin/list
-app.get('/api/admin/checkin/list', authMiddleware, async (req, res) => {
+app.post('/api/admin/live-images', authMiddleware, imageUpload.single('file'), async (req, res, next) => {
   try {
-    const { method, date } = req.query;
-    const activityId = await getCurrentActivityId();
-    let checkinLogs = await cloudQueryAll('checkin_log');
-    
-    // Filter by activity_id
-    checkinLogs = filterByActivity(checkinLogs, activityId);
-
-    // Filter by method
-    if (method) {
-      checkinLogs = checkinLogs.filter((c) => c.method === method);
-    }
-
-    // Filter by date
-    if (date) {
-      checkinLogs = checkinLogs.filter((c) => {
-        if (c.checkinTime) {
-          return c.checkinTime.startsWith(date);
-        }
-        return false;
-      });
-    }
-
-    // Enrich with attendee info
-    const enrichedLogs = [];
-    for (const log of checkinLogs) {
-      let attendee = null;
-      if (log.attendeeCode) {
-        const attendees = await cloudQueryAll('attendee', { attendeeCode: log.attendeeCode });
-        attendee = attendees.length > 0 ? attendees[0] : null;
-      }
-      enrichedLogs.push({
-        ...log,
-        attendeeName: attendee ? attendee.name : '未知',
-        attendeePhone: attendee ? attendee.phone : '',
-        organization: attendee ? attendee.organization : '',
-      });
-    }
-
-    res.json(enrichedLogs);
-  } catch (err) {
-    console.error('[Checkin List Error]', err);
-    res.status(500).json({ error: '获取签到列表失败: ' + err.message });
-  }
-});
-
-// POST /api/admin/live-images
-app.post('/api/admin/live-images', authMiddleware, upload.single('file'), async (req, res) => {
-  try {
+    const activity = await getAdminActivity(req);
     if (!req.file) {
-      return res.status(400).json({ error: '请选择要上传的图片' });
+      res.status(400).json({ error: '请上传图片' });
+      return;
     }
-    const extension = path.extname(req.file.originalname).toLowerCase() || '.jpg';
-    const cloudPath = `event/live/${Date.now()}-${crypto.randomBytes(6).toString('hex')}${extension}`;
+    const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
+    const cloudPath = `event/live/${activity._id}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
     const uploaded = await cloud.uploadFile({ cloudPath, fileContent: req.file.buffer });
-    const tempResult = await cloud.getTempFileURL({ fileList: [uploaded.fileID] });
-    const tempFile = tempResult.fileList && tempResult.fileList[0];
-    const activityId = await getCurrentActivityId();
-    const imageData = {
-      activity_id: activityId || '',
-      fileId: uploaded.fileID,
-      url: (tempFile && tempFile.tempFileURL) || uploaded.fileID,
-      title: req.body.title || '',
-      sortOrder: req.body.sortOrder || 0,
-      visible: req.body.visible !== undefined ? req.body.visible : true,
-      createdAt: new Date().toISOString(),
-    };
-    const result = await cloudAdd('live_image', imageData);
-    res.json({ success: true, id: result._id, message: '直播图片已添加' });
-  } catch (err) {
-    console.error('[Add Live Image Error]', err);
-    res.status(500).json({ error: '添加直播图片失败: ' + err.message });
-  }
-});
-
-app.post('/api/admin/upload', authMiddleware, upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: '请选择要上传的图片' });
-    }
-    const extension = path.extname(req.file.originalname).toLowerCase() || '.jpg';
-    const cloudPath = `event/maps/${Date.now()}-${crypto.randomBytes(6).toString('hex')}${extension}`;
-    const uploaded = await cloud.uploadFile({ cloudPath, fileContent: req.file.buffer });
-    const tempResult = await cloud.getTempFileURL({ fileList: [uploaded.fileID] });
-    const tempFile = tempResult.fileList && tempResult.fileList[0];
-    res.json({ fileId: uploaded.fileID, url: (tempFile && tempFile.tempFileURL) || uploaded.fileID });
-  } catch (err) {
-    console.error('[Map Upload Error]', err);
-    res.status(500).json({ error: `地图图片上传失败: ${err.message}` });
-  }
-});
-
-// GET /api/admin/live-images
-app.get('/api/admin/live-images', authMiddleware, async (req, res) => {
-  try {
-    const activityId = await getCurrentActivityId();
-    let images = await cloudQueryAll('live_image', {}, { field: 'sortOrder', order: 'asc' });
-    
-    // Filter by activity_id
-    images = filterByActivity(images, activityId);
-    
-    res.json(await refreshStorageUrls(images));
-  } catch (err) {
-    console.error('[Live Images Error]', err);
-    res.status(500).json({ error: '获取直播图片列表失败: ' + err.message });
-  }
-});
-
-// PUT /api/admin/live-images/:id
-app.put('/api/admin/live-images/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const images = await cloudQueryAll('live_image');
-    const target = images.find((img) => img._id === id || img.id === id);
-    if (!target) {
-      return res.status(404).json({ error: '直播图片不存在' });
-    }
-    const docId = target._id;
-    await cloudUpdate(
-      `db.collection("live_image").doc("${docId}").update({data:${JSON.stringify(req.body)}})`
-    );
-    res.json({ success: true, message: '直播图片已更新' });
-  } catch (err) {
-    console.error('[Update Live Image Error]', err);
-    res.status(500).json({ error: '更新直播图片失败: ' + err.message });
-  }
-});
-
-// DELETE /api/admin/live-images/:id
-app.delete('/api/admin/live-images/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const images = await cloudQueryAll('live_image');
-    const target = images.find((img) => img._id === id || img.id === id);
-    if (!target) {
-      return res.status(404).json({ error: '直播图片不存在' });
-    }
-    const docId = target._id;
-    await cloudDelete(`db.collection("live_image").doc("${docId}").remove()`);
-    res.json({ success: true, message: '直播图片已删除' });
-  } catch (err) {
-    console.error('[Delete Live Image Error]', err);
-    res.status(500).json({ error: '删除直播图片失败: ' + err.message });
-  }
-});
-
-// ============================================================
-// Mini-program APIs
-// ============================================================
-
-// POST /api/miniapp/queryAttendee
-app.post('/api/miniapp/queryAttendee', async (req, res) => {
-  try {
-    const { phone, name, last4 } = req.body;
-    const activityId = await getCurrentActivityId();
-
-    let attendees = await cloudQueryAll('attendee');
-    
-    // Filter by activity_id
-    attendees = filterByActivity(attendees, activityId);
-
-    if (phone) {
-      // Query by phone
-      attendees = attendees.filter((a) => a.phone === phone);
-    } else if (name && last4) {
-      // Query by name + last 4 digits of phone
-      attendees = attendees.filter((a) => {
-        if (!a.phone || a.phone.length < 4) return false;
-        return a.name === name && a.phone.slice(-4) === last4;
-      });
-    } else {
-      return res.status(400).json({ error: '请提供手机号或姓名+手机后四位' });
-    }
-
-    if (attendees.length === 0) {
-      return res.status(404).json({ error: '未找到参会人员信息' });
-    }
-
-    res.json(attendees);
-  } catch (err) {
-    console.error('[MiniApp Query Attendee Error]', err);
-    res.status(500).json({ error: '查询参会人员失败: ' + err.message });
-  }
-});
-
-// GET /api/miniapp/getActivity
-app.get('/api/miniapp/getActivity', async (req, res) => {
-  try {
-    const activities = await cloudQueryAll('activity', { is_current: 1 });
-    if (activities.length > 0) {
-      return res.json(await refreshActivityMap(activities[0]));
-    }
-    const fallback = await cloudQueryAll('activity');
-    res.json(fallback.length > 0 ? await refreshActivityMap(fallback[0]) : {});
-  } catch (err) {
-    console.error('[MiniApp Get Activity Error]', err);
-    res.status(500).json({ error: '获取活动信息失败: ' + err.message });
-  }
-});
-
-// GET /api/miniapp/getSchedules
-app.get('/api/miniapp/getSchedules', async (req, res) => {
-  try {
-    const activityId = await getCurrentActivityId();
-    const whereClause = activityId ? { activity_id: activityId } : {};
-    let schedules = await cloudQueryAll('schedule', whereClause, { field: 'sortOrder', order: 'asc' });
-    
-    // Fallback: include schedules without activity_id
-    if (activityId) {
-      const allSchedules = await cloudQueryAll('schedule');
-      const fbSchedules = allSchedules.filter(s => !s.activity_id);
-      schedules = schedules.concat(fbSchedules);
-    }
-    
-    res.json(schedules);
-  } catch (err) {
-    console.error('[MiniApp Get Schedules Error]', err);
-    res.status(500).json({ error: '获取日程列表失败: ' + err.message });
-  }
-});
-
-// GET /api/miniapp/getLiveImages
-app.get('/api/miniapp/getLiveImages', async (req, res) => {
-  try {
-    const activityId = await getCurrentActivityId();
-    let images = await cloudQueryAll('live_image', { visible: true }, { field: 'sortOrder', order: 'asc' });
-    
-    // Filter by activity_id
-    images = filterByActivity(images, activityId);
-    
-    res.json(await refreshStorageUrls(images));
-  } catch (err) {
-    console.error('[MiniApp Get Live Images Error]', err);
-    res.status(500).json({ error: '获取直播图片失败: ' + err.message });
-  }
-});
-
-// POST /api/miniapp/checkin
-app.post('/api/miniapp/checkin', async (req, res) => {
-  try {
-    const { attendeeCode } = req.body;
-    if (!attendeeCode) {
-      return res.status(400).json({ error: '签到码不能为空' });
-    }
-
-    const activityId = await getCurrentActivityId();
-    let attendees = await cloudQueryAll('attendee', { attendeeCode });
-    
-    // Filter by activity_id
-    attendees = filterByActivity(attendees, activityId);
-    if (attendees.length === 0) {
-      return res.status(404).json({ error: '未找到参会人员' });
-    }
-
-    const attendee = attendees[0];
-    if (attendee.checkin_status) {
-      return res.status(400).json({ error: '该参会人员已签到', attendee });
-    }
-
-    const now = new Date().toISOString();
-    const docId = attendee._id;
-
-    // Update attendee checkin status
-    await cloudUpdate(
-      `db.collection("attendee").doc("${docId}").update({data:${JSON.stringify({
-        checkin_status: true,
-        checkin_time: now,
-      })}})`
-    );
-
-    // Record checkin log
-    await cloudAdd('checkin_log', {
-      attendeeId: docId,
-      attendeeCode,
-      checkinTime: now,
-      method: 'miniprogram',
-      activity_id: activityId || '',
+    await dbAdd(COLLECTIONS.liveImages, {
+      activityId: activity._id,
+      title: normalizeText(req.body.title),
+      fileID: uploaded.fileID,
+      sortOrder: Number(req.body.sortOrder || 0),
+      isVisible: req.body.isVisible === undefined ? true : String(req.body.isVisible) === 'true',
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
     });
-
-    res.json({ success: true, message: '签到成功', attendee: { ...attendee, checkin_status: true, checkin_time: now } });
-  } catch (err) {
-    console.error('[MiniApp Checkin Error]', err);
-    res.status(500).json({ error: '签到失败: ' + err.message });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// ============================================================
-// H5 Web APIs
-// ============================================================
-
-// POST /api/h5/queryAttendee
-app.post('/api/h5/queryAttendee', async (req, res) => {
+app.get('/api/admin/live-images', authMiddleware, async (req, res, next) => {
   try {
-    const { phone } = req.body;
-    if (!phone) {
-      return res.status(400).json({ error: '手机号不能为空' });
-    }
-
-    const activityId = await getCurrentActivityId();
-    let attendees = await cloudQueryAll('attendee', { phone });
-    
-    // Filter by activity_id
-    attendees = filterByActivity(attendees, activityId);
-
-    if (attendees.length === 0) {
-      return res.status(404).json({ error: '未找到参会人员信息' });
-    }
-
-    res.json(attendees);
-  } catch (err) {
-    console.error('[H5 Query Attendee Error]', err);
-    res.status(500).json({ error: '查询参会人员失败: ' + err.message });
+    const activity = await getAdminActivity(req);
+    res.json(await enrichImages(await getLiveImagesByActivity(activity._id)));
+  } catch (error) {
+    next(error);
   }
 });
 
-// GET /api/h5/getActivity
-app.get('/api/h5/getActivity', async (req, res) => {
+app.put('/api/admin/live-images/:id', authMiddleware, async (req, res, next) => {
   try {
-    const activities = await cloudQueryAll('activity', { is_current: 1 });
-    if (activities.length > 0) {
-      return res.json(activities[0]);
+    const images = (await getCollectionRows(LEGACY_COLLECTIONS.liveImages)).rows.map(normalizeLiveImage);
+    const target = images.find((item) => item._id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: '直播图片不存在' });
+      return;
     }
-    const fallback = await cloudQueryAll('activity');
-    res.json(fallback.length > 0 ? fallback[0] : {});
-  } catch (err) {
-    console.error('[H5 Get Activity Error]', err);
-    res.status(500).json({ error: '获取活动信息失败: ' + err.message });
+    await dbUpdateDoc(COLLECTIONS.liveImages, target._id, {
+      ...target,
+      title: normalizeText(req.body.title ?? target.title),
+      sortOrder: Number(req.body.sortOrder ?? target.sortOrder ?? 0),
+      isVisible:
+        req.body.isVisible === undefined
+          ? target.isVisible
+          : req.body.isVisible === true || req.body.isVisible === 'true',
+      updatedAt: nowIso(),
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// GET /api/h5/getSchedules
-app.get('/api/h5/getSchedules', async (req, res) => {
+app.delete('/api/admin/live-images/:id', authMiddleware, async (req, res, next) => {
   try {
-    const activityId = await getCurrentActivityId();
-    const whereClause = activityId ? { activity_id: activityId } : {};
-    let schedules = await cloudQueryAll('schedule', whereClause, { field: 'sortOrder', order: 'asc' });
-    
-    // Fallback: include schedules without activity_id
-    if (activityId) {
-      const allSchedules = await cloudQueryAll('schedule');
-      const fbSchedules = allSchedules.filter(s => !s.activity_id);
-      schedules = schedules.concat(fbSchedules);
+    const images = (await getCollectionRows(LEGACY_COLLECTIONS.liveImages)).rows.map(normalizeLiveImage);
+    const target = images.find((item) => item._id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: '直播图片不存在' });
+      return;
     }
-    
-    res.json(schedules);
-  } catch (err) {
-    console.error('[H5 Get Schedules Error]', err);
-    res.status(500).json({ error: '获取日程列表失败: ' + err.message });
+    if (target.fileID) {
+      await cloud.deleteFile({ fileList: [target.fileID] }).catch(() => null);
+    }
+    await dbRemoveDoc(COLLECTIONS.liveImages, target._id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
   }
 });
 
-// GET /api/h5/getLiveImages
-app.get('/api/h5/getLiveImages', async (req, res) => {
+app.post('/api/admin/upload', authMiddleware, imageUpload.single('file'), async (req, res, next) => {
   try {
-    const activityId = await getCurrentActivityId();
-    let images = await cloudQueryAll('live_image', { visible: true }, { field: 'sortOrder', order: 'asc' });
-    
-    // Filter by activity_id
-    images = filterByActivity(images, activityId);
-    
-    res.json(images);
-  } catch (err) {
-    console.error('[H5 Get Live Images Error]', err);
-    res.status(500).json({ error: '获取直播图片失败: ' + err.message });
+    if (!req.file) {
+      res.status(400).json({ error: '请上传图片' });
+      return;
+    }
+    const folder = normalizeText(req.body.folder) || 'activity';
+    const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
+    const cloudPath = `event/${folder}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
+    const uploaded = await cloud.uploadFile({ cloudPath, fileContent: req.file.buffer });
+    res.json({ fileID: uploaded.fileID, imageUrl: await getTempUrl(uploaded.fileID) });
+  } catch (error) {
+    next(error);
   }
 });
 
-// ============================================================
-// Start Server
-// ============================================================
-app.listen(CONFIG.port, '0.0.0.0', () => {
-  console.log(`[Server] WeChat Cloud Run server started on port ${CONFIG.port}`);
-  console.log(`[Server] Health check: http://localhost:${CONFIG.port}/health`);
-  console.log(`[Server] Environment: appId=${CONFIG.appId}, envId=${CONFIG.envId}`);
+app.get('/api/activity', async (req, res, next) => {
+  try {
+    await sendPublicActivity(req, res);
+  } catch (error) {
+    next(error);
+  }
 });
 
-module.exports = app;
+app.get('/api/schedules', async (req, res, next) => {
+  try {
+    await sendPublicSchedules(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/attendee/query', async (req, res, next) => {
+  try {
+    await sendPublicAttendee(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/attendee/code/:attendeeCode', async (req, res, next) => {
+  try {
+    const activity = await getCurrentActivity();
+    if (!activity) {
+      res.status(404).json({ error: '当前没有可用活动' });
+      return;
+    }
+    const attendees = await getAttendeesByActivity(activity._id);
+    const target = attendees.find((item) => item.attendeeCode === req.params.attendeeCode);
+    if (!target) {
+      res.status(404).json({ error: '未找到参会信息' });
+      return;
+    }
+    res.json(attendeePublicView(target));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/live-images', async (req, res, next) => {
+  try {
+    await sendPublicImages(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/miniapp/getActivity', async (req, res, next) => {
+  try {
+    await sendPublicActivity(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/api/miniapp/getSchedules', async (req, res, next) => {
+  try {
+    await sendPublicSchedules(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/api/miniapp/getLiveImages', async (req, res, next) => {
+  try {
+    await sendPublicImages(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+app.post('/api/miniapp/queryAttendee', async (req, res, next) => {
+  try {
+    req.body = { name: req.body.name, phoneLast4: req.body.phoneLast4 || req.body.last4 };
+    await sendPublicAttendee(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/h5/getActivity', async (req, res, next) => {
+  try {
+    await sendPublicActivity(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/api/h5/getSchedules', async (req, res, next) => {
+  try {
+    await sendPublicSchedules(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/api/h5/getLiveImages', async (req, res, next) => {
+  try {
+    await sendPublicImages(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+app.post('/api/h5/queryAttendee', async (req, res, next) => {
+  try {
+    req.body = { name: req.body.name, phoneLast4: req.body.phoneLast4 || req.body.last4 };
+    await sendPublicAttendee(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.use((error, _req, res, _next) => {
+  const statusCode = error.statusCode || 500;
+  console.error(error);
+  res.status(statusCode).json({ error: error.message || '服务异常' });
+});
+
+async function startServer() {
+  await seedBaseData();
+  app.listen(CONFIG.port, '0.0.0.0', () => {
+    console.log(`cloudrun listening on ${CONFIG.port}`);
+  });
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  app,
+  seedBaseData,
+  migrateLegacyData,
+  ensureDefaultAdmin,
+};

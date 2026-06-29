@@ -55,6 +55,10 @@
         <text class="field-label">参会码</text>
         <text class="field-value code-value">{{attendee.attendeeCode}}</text>
       </view>
+      <view class="badge-field" wx:if="{{attendee.diningPlace}}">
+        <text class="field-label">用餐地点</text>
+        <text class="field-value">{{attendee.diningPlace}}</text>
+      </view>
       <view class="badge-field" wx:if="{{attendee.seatNo}}">
         <text class="field-label">座位号</text>
         <text class="field-value">{{attendee.seatNo}}</text>
@@ -71,16 +75,14 @@
         <text class="field-label">房间号</text>
         <text class="field-value">{{attendee.roomNo}}</text>
       </view>
-      <view class="badge-field">
-        <text class="field-label">签到状态</text>
-        <text class="field-value {{attendee.checkedIn ? 'status-checked' : 'status-unchecked'}}">
-          {{attendee.checkedIn ? '已签到' : '未签到'}}
-        </text>
+      <view class="badge-field" wx:if="{{attendee.qrContent}}">
+        <text class="field-label">凭证码</text>
+        <text class="field-value code-value">{{attendee.qrContent}}</text>
       </view>
     </view>
 
-    <!-- 重新查询按钮 -->
-    <view class="re-query-btn" bindtap="reQuery">重新查询</view>
+    <view class="re-query-btn" bindtap="previewQr">查看凭证码</view>
+    <view class="re-query-btn secondary" bindtap="reQuery">重新查询</view>
   </view>
 
   <!-- 底部返回首页按钮 -->

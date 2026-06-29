@@ -60,9 +60,9 @@
       <text class="field-label">餐桌号</text>
       <text class="field-value highlight">{{attendee.tableNo}}</text>
     </view>
-    <view class="result-field" wx:if="{{attendee.diningLocation}}">
+    <view class="result-field" wx:if="{{attendee.diningPlace}}">
       <text class="field-label">用餐地点</text>
-      <text class="field-value">{{attendee.diningLocation}}</text>
+      <text class="field-value">{{attendee.diningPlace}}</text>
     </view>
 
     <!-- 酒店信息 -->

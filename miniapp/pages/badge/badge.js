@@ -62,6 +62,16 @@ Page({
     this.setData({ attendee: null, queryFailed: false, name: '', phoneLast4: '' })
   },
 
+  previewQr() {
+    const { attendee } = this.data
+    if (!attendee || !attendee.qrContent) return
+    wx.showModal({
+      title: '参会凭证',
+      content: attendee.qrContent,
+      showCancel: false
+    })
+  },
+
   goBack() {
     wx.navigateBack({ delta: 1 })
   },

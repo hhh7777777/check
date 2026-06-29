@@ -235,6 +235,10 @@
   background: rgba(58, 138, 238, 0.1);
 }
 
+.secondary {
+  margin-top: -8rpx;
+}
+
 /* 返回首页按钮 */
 .back-home {
   display: flex;

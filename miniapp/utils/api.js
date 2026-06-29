@@ -20,7 +20,7 @@ function request(path, method = 'GET', data = {}) {
     }
     wx.cloud.callContainer({
       config: { env: config.envId },
-      path: `${config.apiPrefix}${path}`,
+      path,
       method,
       header: { 'X-WX-SERVICE': config.serviceName },
       data,
@@ -40,11 +40,11 @@ function request(path, method = 'GET', data = {}) {
 }
 
 module.exports = {
-  getActivity: () => request('/getActivity'),
-  getSchedules: () => request('/getSchedules'),
-  queryAttendee: (data) => request('/queryAttendee', 'POST', {
+  getActivity: () => request('/api/activity'),
+  getSchedules: () => request('/api/schedules'),
+  queryAttendee: (data) => request('/api/attendee/query', 'POST', {
     name: data.name,
-    last4: data.phoneLast4 || data.last4
+    phoneLast4: data.phoneLast4 || data.last4
   }),
-  getLiveImages: () => request('/getLiveImages')
+  getLiveImages: () => request('/api/live-images')
 }

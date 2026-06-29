@@ -48,15 +48,13 @@ Page({
       if (res && res.data) {
         const attendee = Array.isArray(res.data) ? res.data[0] : res.data
         wx.setStorageSync('attendeeInfo', attendee)
-        setTimeout(() => {
-          wx.reLaunch({ url: '/pages/index/index' })
-        }, 1500)
+        wx.redirectTo({ url: '/pages/index/index' })
       } else {
-        wx.showToast({ title: '暂未查询到参会信息', icon: 'none' })
+        wx.showToast({ title: '未查询到参会信息', icon: 'none' })
       }
     } catch (err) {
       wx.hideLoading()
-      wx.showToast({ title: '暂未查询到您的参会信息，请联系工作人员', icon: 'none' })
+      wx.showToast({ title: '未查询到您的参会信息，请联系工作人员', icon: 'none' })
     }
   },
 
