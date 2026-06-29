@@ -17,6 +17,10 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Install and refresh trusted root certificates for outbound HTTPS requests.
+RUN apk add --no-cache ca-certificates \
+  && update-ca-certificates
+
 # Copy built dependencies
 COPY --from=builder /app/node_modules ./node_modules
 COPY package.json ./

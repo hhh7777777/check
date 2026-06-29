@@ -1,5 +1,5 @@
 module.exports = {
-  envId: 'cloud1-d3grv9iycce5a2003',
-  serviceName: 'event-api',
+  envId: 'cloud-d7g2mv45l2990eaae',
+  serviceName: 'cloud',
   apiPrefix: '/api/miniapp'
 }
