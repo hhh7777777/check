@@ -1,0 +1,183 @@
+/* ========== 入口验证页 - 深蓝色科幻主题 ========== */
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #0a1628 0%, #0d1f3c 50%, #122a4a 100%);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 背景装饰 - 蓝色圆圈 */
+.bg-decor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.bg-circle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80rpx);
+}
+
+.bg-circle-1 {
+  width: 400rpx;
+  height: 400rpx;
+  background: rgba(58, 138, 238, 0.15);
+  top: -100rpx;
+  right: -100rpx;
+}
+
+.bg-circle-2 {
+  width: 300rpx;
+  height: 300rpx;
+  background: rgba(58, 138, 238, 0.1);
+  top: 400rpx;
+  left: -80rpx;
+}
+
+.bg-streak {
+  position: absolute;
+  width: 300rpx;
+  height: 4rpx;
+  background: linear-gradient(90deg, transparent, rgba(58, 138, 238, 0.2), transparent);
+  transform: rotate(-30deg);
+}
+
+.bg-streak-1 {
+  top: 120rpx;
+  right: 40rpx;
+}
+
+.bg-streak-2 {
+  top: 180rpx;
+  right: 80rpx;
+  width: 200rpx;
+  background: linear-gradient(90deg, transparent, rgba(58, 138, 238, 0.15), transparent);
+}
+
+/* 状态栏 */
+.status-bar {
+  width: 100%;
+}
+
+/* 内容区域 */
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 48rpx;
+}
+
+/* 研究院标题 */
+.title-main {
+  font-size: 44rpx;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.5;
+  letter-spacing: 2rpx;
+  margin-top: 40rpx;
+  margin-bottom: 12rpx;
+}
+
+/* 活动副标题 */
+.title-sub {
+  font-size: 28rpx;
+  color: #f59e0b;
+  margin-top: 12rpx;
+  margin-bottom: 60rpx;
+}
+
+/* 旧标题兼容 */
+.title {
+  font-size: 44rpx;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.5;
+  letter-spacing: 2rpx;
+  margin-top: 40rpx;
+  margin-bottom: 80rpx;
+}
+
+/* 查询区域 */
+.query-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.query-label {
+  font-size: 30rpx;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 40rpx;
+  text-align: center;
+}
+
+/* 输入框 */
+.input-wrapper {
+  margin-bottom: 40rpx;
+}
+
+.phone-input {
+  width: 100%;
+  height: 96rpx;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2rpx solid rgba(255, 255, 255, 0.2);
+  border-radius: 16rpx;
+  padding: 0 32rpx;
+  color: #ffffff;
+  font-size: 32rpx;
+  box-sizing: border-box;
+  letter-spacing: 4rpx;
+}
+
+/* 查询按钮 - 默认灰色状态 */
+.query-btn {
+  width: 100%;
+  height: 96rpx;
+  line-height: 96rpx;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2rpx solid rgba(255, 255, 255, 0.2);
+  border-radius: 16rpx;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 8rpx;
+  transition: all 0.3s;
+}
+
+/* 查询按钮 - 激活蓝色渐变状态 */
+.query-btn.active {
+  background: linear-gradient(135deg, #2a5aae, #3a8aee);
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 8rpx 24rpx rgba(58, 138, 238, 0.4);
+}
+
+/* 底部 */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx 40rpx 60rpx;
+  gap: 20rpx;
+}
+
+.footer-line {
+  width: 80rpx;
+  height: 2rpx;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.footer-text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}

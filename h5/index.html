@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>内部活动参会服务</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- 腾讯云开发 SDK -->
+  <script src="https://unpkg.com/@cloudbase/js-sdk/dist/index.umd.js"></script>
+  <!-- QR Code -->
+  <script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+  <!-- 入口页 - 手机号验证 -->
+  <div id="page-entry" class="page active">
+    <div class="bg-decor">
+      <div class="bg-circle bg-circle-1"></div>
+      <div class="bg-circle bg-circle-2"></div>
+      <div class="bg-streak bg-streak-1"></div>
+      <div class="bg-streak bg-streak-2"></div>
+    </div>
+    <div class="content">
+      <div class="title" id="entry-title">内部活动参会服务</div>
+      <div class="query-area">
+        <div class="query-label">Enter your phone number to query</div>
+        <div class="input-wrapper">
+          <input type="text" id="phone-input" placeholder="Phone Number" maxlength="20">
+        </div>
+        <button class="query-btn" id="query-btn" disabled>Query</button>
+      </div>
+    </div>
+    <div class="footer">
+      <div class="footer-line"></div>
+      <div class="footer-text">Powered by Event Service</div>
+      <div class="footer-line"></div>
+    </div>
+  </div>
+
+  <!-- 主页 -->
+  <div id="page-main" class="page">
+    <div class="bg-decor">
+      <div class="bg-circle bg-circle-1"></div>
+      <div class="bg-circle bg-circle-2"></div>
+    </div>
+    <div class="main-header">
+      <div class="header-title" id="main-title">2026 Annual Conference</div>
+    </div>
+    <div class="card-grid">
+      <div class="card card-full" onclick="showSection('intro')">
+        <div class="card-icon">📋</div>
+        <div class="card-title">Meeting Introduction</div>
+      </div>
+      <div class="card" onclick="showSection('schedule')">
+        <div class="card-icon">📅</div>
+        <div class="card-title">Schedule</div>
+      </div>
+      <div class="card" onclick="showSection('badge')">
+        <div class="card-icon">🎫</div>
+        <div class="card-title">My Badge</div>
+      </div>
+      <div class="card" onclick="showSection('route')">
+        <div class="card-icon">🗺️</div>
+        <div class="card-title">Route</div>
+      </div>
+      <div class="card" onclick="showSection('seating')">
+        <div class="card-icon">💺</div>
+        <div class="card-title">Seating</div>
+      </div>
+      <div class="card" onclick="showSection('live')">
+        <div class="card-icon">📷</div>
+        <div class="card-title">Live Photos</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 会议介绍 -->
+  <div id="page-intro" class="page">
+    <div class="sub-header">
+      <button class="back-btn" onclick="showPage('main')">← Back</button>
+      <span>Meeting Introduction</span>
+    </div>
+    <div class="content-card">
+      <div class="section-title">Activity Info</div>
+      <div id="intro-content">Loading...</div>
+    </div>
+  </div>
+
+  <!-- 会议日程 -->
+  <div id="page-schedule" class="page">
+    <div class="sub-header">
+      <button class="back-btn" onclick="showPage('main')">← Back</button>
+      <span>Schedule</span>
+    </div>
+    <div id="schedule-content">Loading...</div>
+  </div>
+
+  <!-- 参会证 -->
+  <div id="page-badge" class="page">
+    <div class="sub-header">
+      <button class="back-btn" onclick="showPage('main')">← Back</button>
+      <span>My Badge</span>
+    </div>
+    <div class="content-card badge-card">
+      <div class="badge-header">
+        <div class="badge-title" id="badge-title">2026 Annual Conference</div>
+      </div>
+      <div class="badge-info">
+        <div class="badge-name" id="badge-name">--</div>
+        <div class="badge-org" id="badge-org">--</div>
+        <div class="badge-type" id="badge-type">--</div>
+      </div>
+      <div class="badge-details">
+        <div class="detail-row">
+          <span class="detail-label">Seat:</span>
+          <span class="detail-value" id="badge-seat">--</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Table:</span>
+          <span class="detail-value" id="badge-table">--</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Hotel:</span>
+          <span class="detail-value" id="badge-hotel">--</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Room:</span>
+          <span class="detail-value" id="badge-room">--</span>
+        </div>
+      </div>
+      <div class="qr-section">
+        <canvas id="qr-canvas"></canvas>
+        <div class="qr-tip">Show this QR code for check-in</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 参会路线 -->
+  <div id="page-route" class="page">
+    <div class="sub-header">
+      <button class="back-btn" onclick="showPage('main')">← Back</button>
+      <span>Route</span>
+    </div>
+    <div class="content-card">
+      <div class="section-title">Location</div>
+      <div id="route-location">Loading...</div>
+    </div>
+    <div class="content-card">
+      <div class="section-title">Transportation</div>
+      <div id="route-traffic">Loading...</div>
+    </div>
+  </div>
+
+  <!-- 座位信息 -->
+  <div id="page-seating" class="page">
+    <div class="sub-header">
+      <button class="back-btn" onclick="showPage('main')">← Back</button>
+      <span>Seating Info</span>
+    </div>
+    <div class="content-card">
+      <div class="section-title">My Seat</div>
+      <div class="seat-info">
+        <div class="seat-item">
+          <span class="seat-label">Seat No:</span>
+          <span class="seat-value" id="seat-no">--</span>
+        </div>
+        <div class="seat-item">
+          <span class="seat-label">Table No:</span>
+          <span class="seat-value" id="seat-table">--</span>
+        </div>
+        <div class="seat-item">
+          <span class="seat-label">Dining:</span>
+          <span class="seat-value" id="seat-dining">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图文直播 -->
+  <div id="page-live" class="page">
+    <div class="sub-header">
+      <button class="back-btn" onclick="showPage('main')">← Back</button>
+      <span>Live Photos</span>
+    </div>
+    <div id="live-content">Loading...</div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

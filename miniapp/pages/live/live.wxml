@@ -1,0 +1,36 @@
+<view class="sub-page">
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <view class="nav-bar">
+    <view class="nav-back" bindtap="goBack">
+      <view class="nav-back-icon"></view>
+    </view>
+    <text class="nav-title">图文直播</text>
+  </view>
+
+  <view class="content">
+    <!-- 二维码区域 -->
+    <view class="qr-card">
+      <view class="qr-header">
+        <view class="live-dot"></view>
+        <text class="qr-header-text">LIVE</text>
+      </view>
+      <view class="qr-title">摄影师扫码上传</view>
+      <view class="qr-desc">请使用微信扫描下方二维码上传现场照片</view>
+      <view class="qr-wrapper">
+        <canvas type="2d" id="qrCanvas" class="qr-canvas" style="width: 200px; height: 200px;"></canvas>
+      </view>
+      <view class="qr-url" wx:if="{{uploadUrl}}">{{uploadUrl}}</view>
+    </view>
+
+    <!-- 最新图片预览 -->
+    <view class="latest-card" wx:if="{{currentImage}}">
+      <view class="latest-label">最新照片</view>
+      <image class="latest-image" src="{{currentImage.imageUrl}}" mode="widthFix" bindtap="previewImage" />
+    </view>
+  </view>
+
+  <view class="back-home">
+    <view class="back-home-btn" bindtap="goHome">返回首页</view>
+  </view>
+</view>

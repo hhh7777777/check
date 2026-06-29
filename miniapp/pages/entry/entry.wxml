@@ -1,0 +1,50 @@
+<view class="page">
+  <!-- 背景装饰 -->
+  <view class="bg-decor">
+    <view class="bg-circle bg-circle-1"></view>
+    <view class="bg-circle bg-circle-2"></view>
+    <view class="bg-streak bg-streak-1"></view>
+    <view class="bg-streak bg-streak-2"></view>
+  </view>
+
+  <!-- 状态栏占位 -->
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <!-- 内容区域 -->
+  <view class="content">
+    <!-- 固定标题 -->
+    <view class="title-main">新加坡国立大学广州研究院</view>
+
+    <!-- 查询区域 -->
+    <view class="query-area">
+      <view class="query-label">请输入姓名和手机号后四位查询参会信息</view>
+
+      <view class="input-wrapper">
+        <input class="phone-input" type="text" maxlength="30"
+               placeholder="请输入姓名" placeholder-style="color: #94A3B8;"
+               value="{{name}}" bindinput="onNameInput" />
+      </view>
+      <view class="input-wrapper">
+        <input class="phone-input" type="number" maxlength="4"
+               placeholder="请输入手机号后四位" placeholder-style="color: #94A3B8;"
+               value="{{phoneLast4}}" bindinput="onPhoneInput" />
+      </view>
+
+      <view class="query-btn {{name.length > 0 && phoneLast4.length === 4 ? 'active' : ''}}" bindtap="onQuery">
+        <text>立 即 查 询</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部隐私协议 -->
+  <view class="footer">
+    <view class="footer-line"></view>
+    <view class="footer-text">
+      <text>本活动仅面向受邀参会人员提供信息查询服务，</text>
+    </view>
+    <view class="footer-text">
+      <text class="footer-link" bindtap="showPrivacy">《用户隐私协议》</text>
+    </view>
+    <view class="footer-line"></view>
+  </view>
+</view>

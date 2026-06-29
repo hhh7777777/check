@@ -1,0 +1,9 @@
+{
+  "name": "initData",
+  "version": "1.0.0",
+  "description": "初始化云数据库集合和测试数据",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.4.0"
+  }
+}

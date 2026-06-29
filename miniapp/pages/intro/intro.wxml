@@ -1,0 +1,57 @@
+<view class="sub-page">
+  <!-- 状态栏占位 -->
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <!-- 导航栏 -->
+  <view class="nav-bar">
+    <view class="nav-back" bindtap="goBack">
+      <view class="nav-back-icon"></view>
+    </view>
+    <text class="nav-title">会议介绍</text>
+  </view>
+
+  <!-- 活动名称 -->
+  <view class="content-card title-card">
+    <view class="org-name">新加坡国立大学广州研究院</view>
+    <view class="card-title">{{activity.title || '加载中...'}}</view>
+  </view>
+
+  <!-- 基本信息 -->
+  <view class="content-card">
+    <view class="section-title">基本信息</view>
+    <view class="info-list">
+      <view class="info-row">
+        <text class="info-label">活动时间</text>
+        <text class="info-value">{{activity.startTime}} - {{activity.endTime}}</text>
+      </view>
+      <view class="info-row">
+        <text class="info-label">活动地点</text>
+        <text class="info-value">{{activity.location}}</text>
+      </view>
+      <view class="info-row" wx:if="{{activity.organizer}}">
+        <text class="info-label">主办单位</text>
+        <text class="info-value">{{activity.organizer}}</text>
+      </view>
+      <view class="info-row" wx:if="{{activity.coOrganizer}}">
+        <text class="info-label">承办单位</text>
+        <text class="info-value">{{activity.coOrganizer}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 活动介绍 -->
+  <view class="content-card" wx:if="{{activity.description}}">
+    <view class="section-title">活动介绍</view>
+    <view class="description-text">{{activity.description}}</view>
+  </view>
+
+  <!-- 无数据提示 -->
+  <view class="empty-tip" wx:if="{{!activity.title && loaded}}">
+    <text>暂无活动信息</text>
+  </view>
+
+  <!-- 底部返回首页按钮 -->
+  <view class="back-home">
+    <view class="back-home-btn" bindtap="goHome">返回首页</view>
+  </view>
+</view>

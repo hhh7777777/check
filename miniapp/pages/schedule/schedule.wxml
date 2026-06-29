@@ -1,0 +1,55 @@
+<view class="sub-page">
+  <!-- 状态栏占位 -->
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <!-- 导航栏 -->
+  <view class="nav-bar">
+    <view class="nav-back" bindtap="goBack">
+      <view class="nav-back-icon"></view>
+    </view>
+    <text class="nav-title">会议日程</text>
+  </view>
+
+  <!-- 加载中 -->
+  <view class="loading" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+
+  <!-- 无数据 -->
+  <view class="empty-tip" wx:if="{{!loading && groupedSchedules.length === 0}}">
+    <text>暂无日程安排</text>
+  </view>
+
+  <!-- 时间轴日程 -->
+  <view class="timeline" wx:if="{{!loading && groupedSchedules.length > 0}}">
+    <view class="date-group" wx:for="{{groupedSchedules}}" wx:key="date">
+      <view class="date-header">
+        <text class="date-text">{{item.date}}</text>
+      </view>
+      <view class="timeline-item" wx:for="{{item.list}}" wx:for-item="schedule" wx:key="id">
+        <view class="timeline-left">
+          <view class="timeline-dot"></view>
+          <view class="timeline-line"></view>
+        </view>
+        <view class="timeline-content">
+          <view class="time-range">{{schedule.startTime}} - {{schedule.endTime}}</view>
+          <view class="schedule-title">{{schedule.title}}</view>
+          <view class="schedule-info" wx:if="{{schedule.location}}">
+            <text class="info-icon">&#x1F4CD;</text>
+            <text>{{schedule.location}}</text>
+          </view>
+          <view class="schedule-info" wx:if="{{schedule.speaker}}">
+            <text class="info-icon">&#x1F464;</text>
+            <text>{{schedule.speaker}}</text>
+          </view>
+          <view class="schedule-remark" wx:if="{{schedule.remark}}">{{schedule.remark}}</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部返回首页按钮 -->
+  <view class="back-home">
+    <view class="back-home-btn" bindtap="goHome">返回首页</view>
+  </view>
+</view>

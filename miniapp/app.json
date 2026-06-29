@@ -1,0 +1,23 @@
+{
+  "pages": [
+    "pages/entry/entry",
+    "pages/index/index",
+    "pages/intro/intro",
+    "pages/schedule/schedule",
+    "pages/badge/badge",
+    "pages/route/route",
+    "pages/seating/seating",
+    "pages/live/live",
+    "pages/privacy/privacy"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#0a1628",
+    "navigationBarTitleText": "会议中心",
+    "navigationBarTextStyle": "white",
+    "navigationStyle": "custom"
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}

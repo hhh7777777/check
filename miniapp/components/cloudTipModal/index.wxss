@@ -1,0 +1,4 @@
+/* cloudTipModal 组件样式 */
+.cloud-tip-modal {
+  padding: 24rpx;
+}

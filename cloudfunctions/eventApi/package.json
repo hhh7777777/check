@@ -1,0 +1,9 @@
+{
+  "name": "eventApi",
+  "version": "1.0.0",
+  "description": "内部活动参会服务API",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.4.0"
+  }
+}

@@ -1,0 +1,55 @@
+<view class="sub-page">
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+  <view class="nav-bar">
+    <view class="nav-back" bindtap="goBack">
+      <view class="nav-back-icon"></view>
+    </view>
+    <text class="nav-title">用户隐私协议</text>
+  </view>
+
+  <scroll-view class="content-card" scroll-y>
+    <view class="privacy-title">用户隐私协议</view>
+    <view class="privacy-org">新加坡国立大学广州研究院</view>
+
+    <view class="privacy-section">
+      <view class="section-title">一、信息收集</view>
+      <view class="section-text">本小程序为"新加坡国立大学广州研究院"内部活动参会服务工具，仅面向受邀参会人员提供信息查询服务。我们仅收集以下必要信息：</view>
+      <view class="section-text">1. 手机号：用于匹配参会人员信息，不对外展示完整手机号；</view>
+      <view class="section-text">2. 姓名：用于身份核验，确保参会信息准确匹配。</view>
+    </view>
+
+    <view class="privacy-section">
+      <view class="section-title">二、信息使用</view>
+      <view class="section-text">所收集的信息仅用于以下用途：</view>
+      <view class="section-text">1. 提供参会信息查询服务（座位、酒店、日程等）；</view>
+      <view class="section-text">2. 活动现场签到管理；</view>
+      <view class="section-text">3. 不会将您的信息用于上述用途以外的任何目的。</view>
+    </view>
+
+    <view class="privacy-section">
+      <view class="section-title">三、信息存储与保护</view>
+      <view class="section-text">1. 您的信息存储在安全的云服务器中，采用加密传输和存储；</view>
+      <view class="section-text">2. 我们采取严格的安全措施防止信息泄露、篡改或丢失；</view>
+      <view class="section-text">3. 活动结束后，相关数据将在合理期限内删除。</view>
+    </view>
+
+    <view class="privacy-section">
+      <view class="section-title">四、信息共享</view>
+      <view class="section-text">我们不会将您的个人信息共享给任何第三方，法律法规另有规定的除外。</view>
+    </view>
+
+    <view class="privacy-section">
+      <view class="section-title">五、用户权利</view>
+      <view class="section-text">您有权要求我们删除您的个人信息。如需删除，请联系活动组织方。</view>
+    </view>
+
+    <view class="privacy-section">
+      <view class="section-title">六、联系方式</view>
+      <view class="section-text">如对本协议有任何疑问，请联系活动组织方。</view>
+    </view>
+  </scroll-view>
+
+  <view class="back-home">
+    <view class="back-home-btn" bindtap="goBack">返回</view>
+  </view>
+</view>

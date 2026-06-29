@@ -1,0 +1,518 @@
+/* ========================================
+   H5 参会服务 - 深蓝科技风主题
+   ======================================== */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: linear-gradient(180deg, #0a1628 0%, #0d1f3c 50%, #122a4a 100%);
+  min-height: 100vh;
+  color: #ffffff;
+  overflow-x: hidden;
+}
+
+/* 背景装饰 */
+.bg-decor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bg-circle {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(58, 138, 238, 0.15) 0%, transparent 70%);
+}
+
+.bg-circle-1 {
+  width: 600px;
+  height: 600px;
+  top: -200px;
+  right: -200px;
+}
+
+.bg-circle-2 {
+  width: 400px;
+  height: 400px;
+  bottom: 100px;
+  left: -150px;
+}
+
+.bg-streak {
+  position: absolute;
+  background: linear-gradient(90deg, transparent, rgba(58, 138, 238, 0.1), transparent);
+  transform: rotate(-30deg);
+}
+
+.bg-streak-1 {
+  width: 300px;
+  height: 2px;
+  top: 200px;
+  left: -50px;
+}
+
+.bg-streak-2 {
+  width: 200px;
+  height: 2px;
+  top: 400px;
+  right: -30px;
+}
+
+/* 页面管理 */
+.page {
+  display: none;
+  min-height: 100vh;
+  padding: 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.page.active {
+  display: block;
+}
+
+/* 入口页 */
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+}
+
+.title {
+  font-size: 32px;
+  font-weight: 700;
+  color: #ffffff;
+  text-align: center;
+  margin-bottom: 40px;
+  text-shadow: 0 2px 10px rgba(58, 138, 238, 0.5);
+}
+
+.query-area {
+  width: 100%;
+  max-width: 400px;
+}
+
+.query-label {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.input-wrapper {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  margin-bottom: 20px;
+}
+
+.input-wrapper input {
+  width: 100%;
+  height: 56px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 18px;
+  letter-spacing: 1px;
+}
+
+.input-wrapper input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.query-btn {
+  width: 100%;
+  height: 56px;
+  background: linear-gradient(135deg, #2a5aae, #3a8aee);
+  color: #ffffff;
+  border: none;
+  border-radius: 28px;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 24px rgba(42, 90, 174, 0.4);
+  letter-spacing: 4px;
+}
+
+.query-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.query-btn:not(:disabled):active {
+  transform: scale(0.98);
+  opacity: 0.9;
+}
+
+.footer {
+  position: fixed;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.footer-line {
+  width: 60px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.footer-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* 主页 */
+.main-header {
+  text-align: center;
+  padding: 20px 0 30px;
+}
+
+.header-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(58, 138, 238, 0.5);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  padding: 0 10px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 24px 16px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.card:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.card-full {
+  grid-column: span 2;
+}
+
+.card-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+}
+
+/* 子页面头部 */
+.sub-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0 24px;
+  position: relative;
+}
+
+.back-btn {
+  position: absolute;
+  left: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.back-btn:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.sub-header span {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* 内容卡片 */
+.content-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #3a8aee;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 会议介绍 */
+#intro-content {
+  font-size: 14px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* 日程 */
+.schedule-day {
+  margin-bottom: 20px;
+}
+
+.schedule-date {
+  font-size: 16px;
+  font-weight: 600;
+  color: #3a8aee;
+  padding: 12px 16px;
+  background: rgba(58, 138, 238, 0.15);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.schedule-item {
+  display: flex;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  border-left: 3px solid #3a8aee;
+}
+
+.schedule-time {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  min-width: 100px;
+}
+
+.schedule-info {
+  flex: 1;
+}
+
+.schedule-title {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.schedule-location {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 参会证 */
+.badge-card {
+  background: linear-gradient(135deg, #1a2a4a, #0d1f3c);
+  border: 2px solid rgba(58, 138, 238, 0.3);
+}
+
+.badge-header {
+  text-align: center;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.2);
+  margin-bottom: 20px;
+}
+
+.badge-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #3a8aee;
+}
+
+.badge-info {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.badge-name {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.badge-org {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 4px;
+}
+
+.badge-type {
+  display: inline-block;
+  padding: 4px 16px;
+  background: linear-gradient(135deg, #2a5aae, #3a8aee);
+  border-radius: 20px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.badge-details {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+}
+
+.detail-value {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.qr-section {
+  text-align: center;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
+#qr-canvas {
+  background: #ffffff;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.qr-tip {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 12px;
+}
+
+/* 座位信息 */
+.seat-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.seat-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.seat-label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.seat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #3a8aee;
+}
+
+/* 路线 */
+#route-location, #route-traffic {
+  font-size: 14px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: pre-wrap;
+}
+
+/* 图文直播 */
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.live-item {
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.live-item img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+}
+
+.live-item-title {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 空状态 */
+.empty-tip {
+  text-align: center;
+  padding: 60px 20px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+}
+
+/* 加载中 */
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 9999;
+  animation: fadeInOut 2s ease;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}

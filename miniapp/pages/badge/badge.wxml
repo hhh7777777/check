@@ -1,0 +1,90 @@
+<view class="sub-page">
+  <!-- 状态栏占位 -->
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <!-- 导航栏 -->
+  <view class="nav-bar">
+    <view class="nav-back" bindtap="goBack">
+      <view class="nav-back-icon"></view>
+    </view>
+    <text class="nav-title">电子参会证</text>
+  </view>
+
+  <!-- 查询表单 -->
+  <view class="content-card" wx:if="{{!attendee}}">
+    <view class="form-title">查询电子参会证</view>
+    <view class="form-group">
+      <view class="form-label">姓名</view>
+      <input class="dark-input" placeholder="请输入您的姓名" placeholder-style="color: rgba(255,255,255,0.3);" value="{{name}}" bindinput="onNameInput" />
+    </view>
+    <view class="form-group">
+      <view class="form-label">手机号后四位</view>
+      <input class="dark-input" placeholder="请输入手机号后四位" placeholder-style="color: rgba(255,255,255,0.3);" value="{{phoneLast4}}" bindinput="onPhoneInput" maxlength="4" type="number" />
+    </view>
+    <view class="search-btn" bindtap="queryAttendee">查询</view>
+  </view>
+
+  <!-- 查询失败提示 -->
+  <view class="content-card error-card" wx:if="{{queryFailed}}">
+    <view class="error-text">暂未查询到您的参会信息，请联系工作人员</view>
+    <view class="search-btn" bindtap="retry">重新查询</view>
+  </view>
+
+  <!-- 电子参会证 -->
+  <view class="badge-card" wx:if="{{attendee}}">
+    <!-- 头部 -->
+    <view class="badge-header">
+      <view class="badge-header-title">电子参会证</view>
+    </view>
+
+    <!-- 信息区域 -->
+    <view class="badge-body">
+      <view class="badge-field">
+        <text class="field-label">姓名</text>
+        <text class="field-value">{{attendee.name}}</text>
+      </view>
+      <view class="badge-field">
+        <text class="field-label">单位</text>
+        <text class="field-value">{{attendee.organization}}</text>
+      </view>
+      <view class="badge-field">
+        <text class="field-label">身份类型</text>
+        <text class="field-value">{{attendee.identityType}}</text>
+      </view>
+      <view class="badge-field">
+        <text class="field-label">参会码</text>
+        <text class="field-value code-value">{{attendee.attendeeCode}}</text>
+      </view>
+      <view class="badge-field" wx:if="{{attendee.seatNo}}">
+        <text class="field-label">座位号</text>
+        <text class="field-value">{{attendee.seatNo}}</text>
+      </view>
+      <view class="badge-field" wx:if="{{attendee.tableNo}}">
+        <text class="field-label">餐桌号</text>
+        <text class="field-value">{{attendee.tableNo}}</text>
+      </view>
+      <view class="badge-field" wx:if="{{attendee.hotelName}}">
+        <text class="field-label">酒店名称</text>
+        <text class="field-value">{{attendee.hotelName}}</text>
+      </view>
+      <view class="badge-field" wx:if="{{attendee.roomNo}}">
+        <text class="field-label">房间号</text>
+        <text class="field-value">{{attendee.roomNo}}</text>
+      </view>
+      <view class="badge-field">
+        <text class="field-label">签到状态</text>
+        <text class="field-value {{attendee.checkedIn ? 'status-checked' : 'status-unchecked'}}">
+          {{attendee.checkedIn ? '已签到' : '未签到'}}
+        </text>
+      </view>
+    </view>
+
+    <!-- 重新查询按钮 -->
+    <view class="re-query-btn" bindtap="reQuery">重新查询</view>
+  </view>
+
+  <!-- 底部返回首页按钮 -->
+  <view class="back-home">
+    <view class="back-home-btn" bindtap="goHome">返回首页</view>
+  </view>
+</view>

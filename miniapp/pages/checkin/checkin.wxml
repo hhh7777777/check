@@ -1,0 +1,106 @@
+<view class="sub-page">
+  <!-- 状态栏占位 -->
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <!-- 导航栏 -->
+  <view class="nav-bar">
+    <view class="nav-back" bindtap="goBack">
+      <view class="nav-back-icon"></view>
+    </view>
+    <text class="nav-title">工作人员签到</text>
+  </view>
+
+  <!-- 操作员输入 -->
+  <view class="content-card" wx:if="{{!operator}}">
+    <view class="form-title">工作人员签到</view>
+    <view class="form-group">
+      <view class="form-label">操作员名称</view>
+      <input class="dark-input" placeholder="请输入您的名称" placeholder-style="color: rgba(255,255,255,0.3);" value="{{operatorName}}" bindinput="onOperatorInput" />
+    </view>
+    <view class="search-btn" bindtap="enterCheckin">进入签到</view>
+  </view>
+
+  <!-- 签到模式 -->
+  <view class="checkin-area" wx:if="{{operator}}">
+    <view class="operator-bar">
+      <text class="operator-label">操作员：</text>
+      <text class="operator-name">{{operator}}</text>
+    </view>
+
+    <!-- 扫码/签到 -->
+    <view class="content-card scan-card" wx:if="{{!scanResult}}">
+      <view class="scan-icon-wrap">
+        <view class="scan-icon">&#x1F4F7;</view>
+      </view>
+      <view class="scan-text">扫描参会人二维码进行签到</view>
+      <view class="scan-tip">请用另一台设备打开参会证，扫描其二维码</view>
+      <view class="search-btn" bindtap="startScan">打开摄像头扫码</view>
+
+      <!-- 手动输入参会码 -->
+      <view class="manual-divider">
+        <view class="divider-line"></view>
+        <text class="divider-text">或输入参会码签到</text>
+        <view class="divider-line"></view>
+      </view>
+      <view class="form-group">
+        <input class="dark-input" placeholder="输入参会码（如 A202606240001）" placeholder-style="color: rgba(255,255,255,0.3);" value="{{manualCode}}" bindinput="onManualCodeInput" />
+      </view>
+      <view class="search-btn" bindtap="manualCheckin">签到</view>
+    </view>
+
+    <!-- 签到成功 -->
+    <view class="content-card result-card success-card" wx:if="{{scanResult === 'success'}}">
+      <view class="result-icon success-icon">&#x2713;</view>
+      <view class="result-status success-text">签到成功</view>
+      <view class="result-info">
+        <view class="info-row">
+          <text class="info-label">姓名</text>
+          <text class="info-value">{{checkedAttendee.name}}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">单位</text>
+          <text class="info-value">{{checkedAttendee.organization}}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">身份类型</text>
+          <text class="info-value">{{checkedAttendee.identityType}}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">签到时间</text>
+          <text class="info-value">{{checkinTime}}</text>
+        </view>
+      </view>
+      <view class="search-btn" bindtap="continueScan">继续扫码</view>
+    </view>
+
+    <!-- 已签到 -->
+    <view class="content-card result-card warning-card" wx:if="{{scanResult === 'already'}}">
+      <view class="result-icon warning-icon">!</view>
+      <view class="result-status warning-text">该参会人已签到</view>
+      <view class="result-info">
+        <view class="info-row">
+          <text class="info-label">姓名</text>
+          <text class="info-value">{{checkedAttendee.name}}</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">单位</text>
+          <text class="info-value">{{checkedAttendee.organization}}</text>
+        </view>
+      </view>
+      <view class="search-btn" bindtap="continueScan">继续扫码</view>
+    </view>
+
+    <!-- 无效二维码 -->
+    <view class="content-card result-card error-card" wx:if="{{scanResult === 'invalid'}}">
+      <view class="result-icon error-icon">&#x2715;</view>
+      <view class="result-status error-text">无效二维码</view>
+      <view class="result-desc">请确认二维码格式是否正确</view>
+      <view class="search-btn" bindtap="continueScan">继续扫码</view>
+    </view>
+  </view>
+
+  <!-- 底部返回首页按钮 -->
+  <view class="back-home">
+    <view class="back-home-btn" bindtap="goHome">返回首页</view>
+  </view>
+</view>

@@ -1,0 +1,133 @@
+<view class="page">
+  <!-- 背景装饰 -->
+  <view class="bg-decor">
+    <view class="bg-circle bg-circle-1"></view>
+    <view class="bg-circle bg-circle-2"></view>
+    <view class="bg-circle bg-circle-3"></view>
+    <view class="bg-streak bg-streak-1"></view>
+    <view class="bg-streak bg-streak-2"></view>
+  </view>
+
+  <!-- 状态栏占位 -->
+  <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+
+  <!-- 标题区域 -->
+  <view class="header">
+    <view class="header-title">新加坡国立大学广州研究院</view>
+  </view>
+
+  <!-- 功能卡片区 -->
+  <view class="card-area">
+    <!-- 会议介绍 - 全宽大卡片 -->
+    <view class="card card-intro" bindtap="goToPage" data-url="/pages/intro/intro">
+      <view class="card-content">
+        <view class="card-text">
+          <view class="card-title" wx:if="{{activity.title}}">{{activity.title}}</view>
+          <view class="card-subtitle">CONFERENCE OVERVIEW</view>
+          <view class="card-btn">
+            <text class="btn-text">立即查看</text>
+            <text class="btn-arrow">›</text>
+          </view>
+        </view>
+        <view class="card-icon-area">
+          <view class="icon-3d icon-chart">
+            <view class="chart-bar" style="height: 60%;"></view>
+            <view class="chart-bar" style="height: 80%;"></view>
+            <view class="chart-bar" style="height: 45%;"></view>
+            <view class="chart-bar" style="height: 90%;"></view>
+            <view class="chart-bar" style="height: 70%;"></view>
+          </view>
+          <view class="icon-3d icon-cylinder">
+            <view class="cylinder-ring"></view>
+            <view class="cylinder-ring"></view>
+            <view class="cylinder-ring"></view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 两列卡片区 -->
+    <view class="card-grid">
+      <!-- 左列 -->
+      <view class="card-col card-col-left">
+        <!-- 会议日程 - 高卡片 -->
+        <view class="card card-schedule card-tall" bindtap="goToPage" data-url="/pages/schedule/schedule">
+          <view class="card-text">
+            <view class="card-title">会议日程</view>
+            <view class="card-subtitle">MEETING<br/>SCHEDULE</view>
+          </view>
+          <view class="card-icon-area">
+            <view class="icon-3d icon-magnifier">
+              <view class="mag-glass"></view>
+              <view class="mag-handle"></view>
+            </view>
+          </view>
+        </view>
+        <!-- 座位/酒店 -->
+        <view class="card card-seating" bindtap="goToPage" data-url="/pages/seating/seating">
+          <view class="card-text">
+            <view class="card-title">座位/酒店</view>
+            <view class="card-subtitle">SEATING<br/>HOTEL</view>
+          </view>
+          <view class="card-icon-area">
+            <view class="icon-3d icon-building">
+              <view class="building-floor"></view>
+              <view class="building-floor"></view>
+              <view class="building-floor"></view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 右列 -->
+      <view class="card-col card-col-right">
+        <!-- 电子参会证 -->
+        <view class="card card-badge" bindtap="goToPage" data-url="/pages/badge/badge">
+          <view class="card-text">
+            <view class="card-title">电子参会证</view>
+            <view class="card-subtitle">ELECTRONIC<br/>CONFERENCE<br/>CARD</view>
+          </view>
+          <view class="card-icon-area">
+            <view class="icon-3d icon-person">
+              <view class="person-head"></view>
+              <view class="person-body"></view>
+            </view>
+          </view>
+        </view>
+        <!-- 参会路线 -->
+        <view class="card card-route" bindtap="goToPage" data-url="/pages/route/route">
+          <view class="card-text">
+            <view class="card-title">参会路线</view>
+            <view class="card-subtitle">CONFERENCE<br/>ROUTE</view>
+          </view>
+          <view class="card-icon-area">
+            <view class="icon-3d icon-map">
+              <view class="map-pin"></view>
+              <view class="map-circle"></view>
+            </view>
+          </view>
+        </view>
+        <!-- 图文直播 -->
+        <view class="card card-live" bindtap="goToPage" data-url="/pages/live/live">
+          <view class="card-text">
+            <view class="card-title">图文直播</view>
+            <view class="card-subtitle">THE DIAGRAM<br/>TEXT IS LIVE</view>
+          </view>
+          <view class="card-icon-area">
+            <view class="icon-3d icon-camera">
+              <view class="cam-body"></view>
+              <view class="cam-lens"></view>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部 -->
+  <view class="footer">
+    <view class="footer-line"></view>
+    <view class="footer-text">本活动提供技术支持</view>
+    <view class="footer-line"></view>
+  </view>
+</view>
