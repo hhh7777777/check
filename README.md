@@ -7,10 +7,6 @@
 - `admin-web`：管理后台
 - `cloudrun`：微信云托管 Express 后端
 
-当前建议统一使用云环境：
-
-- `cloud1-d3grv9iycce5a2003`
-
 当前云托管服务名：
 
 - `cloud`
@@ -29,7 +25,7 @@ sign/
 
 系统固定为“多次活动 + 前台永远只显示当前活动”模式。
 
-保留功能：
+功能：
 
 - 活动信息展示
 - 当前活动日程
@@ -42,43 +38,8 @@ sign/
 - 后台日程管理
 - 后台参会人员导入 / 导出 / 编辑 / 删除
 
-明确不做：
-
-- 报名
-- 签到
-- 签到统计
-- 支付
-- 会员系统
-- 自建服务器
-- MySQL
-
 ## 云数据库集合
 
-最终使用下面 5 类集合名的兼容模型：
-
-- `activity`
-- `schedule`
-- `attendee`
-- `live_image`
-- `admin`
-
-后端兼容读取旧命名：
-
-- `activities`
-- `schedules`
-- `attendees`
-- `live_images`
-- `admins`
-
-## 公共接口
-
-```http
-GET  /api/activity
-GET  /api/schedules
-POST /api/attendee/query
-GET  /api/attendee/code/:attendeeCode
-GET  /api/live-images
-```
 
 说明：
 
@@ -146,8 +107,8 @@ WX_APPID=你的小程序 appid
 WX_APPSECRET=你的小程序 secret
 JWT_SECRET=上线必须自定义
 CORS_ORIGINS=*
-ADMIN_DEFAULT_USERNAME=admin
-ADMIN_DEFAULT_PASSWORD=admin@123
+ADMIN_DEFAULT_USERNAME=
+ADMIN_DEFAULT_PASSWORD=
 NODE_ENV=production
 PORT=80
 ```
@@ -354,20 +315,3 @@ npm.cmd run build
 - 小程序能查询当前活动
 - 手机号查询支持国内与国际号码
 - 参会二维码内容为 `PASS:{attendeeCode}`
-
-## 当前代码改动说明
-
-已完成的重要调整：
-
-- 小程序云托管环境改为 `cloud1-d3grv9iycce5a2003`
-- 小程序服务名改为 `cloud`
-- 后台生产环境 API 地址改为 `/api`
-- 后台路由改为 hash 模式，避免子路径部署后跳到根域名 `/login`
-
-如果要正式上线，接下来最关键的是：
-
-1. 重新部署 `cloudrun`
-2. 重新上传 `admin-web/dist`
-3. 重新上传 `h5-web/dist`
-4. 配好静态托管 `/api/* -> cloudrun` 路由
-5. 再联调 `/health` 和 `/api/activity`
