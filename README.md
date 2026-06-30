@@ -1,24 +1,68 @@
 # 内部活动参会服务系统
 
-这是一个单活动模式的内部活动参会信息系统，包含四个部分：
+本项目重构为四端架构：
 
-- 微信小程序 `miniapp`
-- H5 备用入口 `h5-web`
-- 管理后台 `admin-web`
-- 微信云托管后端 `cloudrun`
+- `miniapp`：微信小程序
+- `h5-web`：H5 备用入口
+- `admin-web`：管理后台
+- `cloudrun`：微信云托管 Express 后端
 
-## 架构
+当前建议统一使用云环境：
+
+- `cloud1-d3grv9iycce5a2003`
+
+当前云托管服务名：
+
+- `cloud`
+
+## 目录结构
 
 ```text
-miniapp   -> wx.cloud.callContainer -> cloudrun
-h5-web    -> HTTPS API              -> cloudrun
-admin-web -> HTTPS API              -> cloudrun
-cloudrun  -> 微信云数据库 / 微信云存储
+sign/
+├─ miniapp/
+├─ h5-web/
+├─ admin-web/
+└─ cloudrun/
 ```
 
-## 数据集合
+## 功能范围
 
-云数据库使用这 5 个集合：
+系统固定为“多次活动 + 前台永远只显示当前活动”模式。
+
+保留功能：
+
+- 活动信息展示
+- 当前活动日程
+- 电子参会证查询
+- 座位 / 餐序 / 酒店查询
+- 联系方式
+- 路线说明
+- 图文直播
+- 后台活动管理
+- 后台日程管理
+- 后台参会人员导入 / 导出 / 编辑 / 删除
+
+明确不做：
+
+- 报名
+- 签到
+- 签到统计
+- 支付
+- 会员系统
+- 自建服务器
+- MySQL
+
+## 云数据库集合
+
+最终使用下面 5 类集合名的兼容模型：
+
+- `activity`
+- `schedule`
+- `attendee`
+- `live_image`
+- `admin`
+
+后端兼容读取旧命名：
 
 - `activities`
 - `schedules`
@@ -26,11 +70,96 @@ cloudrun  -> 微信云数据库 / 微信云存储
 - `live_images`
 - `admins`
 
-前台永远只显示当前活动，后台可以维护多场历史活动。
+## 公共接口
 
-## 本地启动
+```http
+GET  /api/activity
+GET  /api/schedules
+POST /api/attendee/query
+GET  /api/attendee/code/:attendeeCode
+GET  /api/live-images
+```
 
-### 1) 启动后端
+说明：
+
+- 前台默认只读取“当前活动”
+- 查询接口当前已支持“只输入手机号”
+- 手机号支持中国大陆手机号和国际手机号
+- 返回结果不暴露完整手机号
+- 二维码内容统一为 `PASS:{attendeeCode}`
+
+## 管理接口
+
+```http
+POST   /api/admin/login
+GET    /api/admin/dashboard
+GET    /api/admin/activities
+POST   /api/admin/activities
+GET    /api/admin/activities/:id
+PUT    /api/admin/activities/:id
+POST   /api/admin/activities/:id/activate
+DELETE /api/admin/activities/:id
+GET    /api/admin/activity
+PUT    /api/admin/activity
+GET    /api/admin/schedules
+POST   /api/admin/schedules
+PUT    /api/admin/schedules/:id
+DELETE /api/admin/schedules/:id
+GET    /api/admin/attendees
+POST   /api/admin/attendees/import
+PUT    /api/admin/attendees/:id
+DELETE /api/admin/attendees/:id
+GET    /api/admin/attendees/export
+POST   /api/admin/live-images
+GET    /api/admin/live-images
+PUT    /api/admin/live-images/:id
+DELETE /api/admin/live-images/:id
+POST   /api/admin/upload
+GET    /health
+```
+
+## 本地关键配置
+
+### 小程序
+
+文件：[miniapp/config.js](/D:/sign/miniapp/config.js)
+
+```js
+module.exports = {
+  envId: 'cloud1-d3grv9iycce5a2003',
+  serviceName: 'cloud'
+}
+```
+
+要求：
+
+- `envId` 必须和微信开发者工具里能选到的云环境一致
+- `serviceName` 必须和云托管真实服务名一致
+
+### 后端环境变量
+
+`cloudrun` 至少需要：
+
+```env
+WX_ENV_ID=cloud1-d3grv9iycce5a2003
+WX_APPID=你的小程序 appid
+WX_APPSECRET=你的小程序 secret
+JWT_SECRET=上线必须自定义
+CORS_ORIGINS=*
+ADMIN_DEFAULT_USERNAME=admin
+ADMIN_DEFAULT_PASSWORD=admin@123
+NODE_ENV=production
+PORT=80
+```
+
+上线前务必修改：
+
+- `JWT_SECRET`
+- `ADMIN_DEFAULT_PASSWORD`
+
+## 启动与构建
+
+### cloudrun
 
 ```bash
 cd cloudrun
@@ -38,215 +167,207 @@ npm install
 npm run dev
 ```
 
-本地开发时：
+如果本地 PowerShell 禁止执行脚本，请用：
 
-- `JWT_SECRET` 没配也能启动，会使用开发默认值
-- 如果没配 `WX_ENV_ID / WX_APPID / WX_APPSECRET`，启动阶段会跳过云端种子初始化
-
-建议本地放一个 `.env`，或直接按 `.env.example` 配：
-
-```env
-NODE_ENV=development
-PORT=3000
-WX_ENV_ID=your-cloud-env-id
-WX_APPID=your-wechat-appid
-WX_APPSECRET=your-wechat-appsecret
-JWT_SECRET=change-this-in-production
-CORS_ORIGINS=http://localhost:5173,http://localhost:4173
-ADMIN_DEFAULT_USERNAME=admin
-ADMIN_DEFAULT_PASSWORD=admin123
+```bash
+npm.cmd run dev
 ```
 
-健康检查：
-
-```http
-GET /health
-```
-
-### 2) 启动管理后台
+### admin-web
 
 ```bash
 cd admin-web
 npm install
-npm run dev -- --host 0.0.0.0 --port 5173
+npm.cmd run build
 ```
 
-后台生产构建：
-
-```bash
-cd admin-web
-npm run build
-```
-
-### 3) 启动 H5 备用入口
+### h5-web
 
 ```bash
 cd h5-web
 npm install
-npm run dev -- --host 0.0.0.0 --port 4173
+npm.cmd run build
 ```
 
-H5 生产构建：
+## 部署顺序
 
-```bash
-cd h5-web
-npm run build
-```
+### 1. 部署 cloudrun 到 cloud1
 
-H5 默认英文，支持中文切换，支持普通浏览器直接访问。
+确认：
 
-## 小程序配置
+- 云环境：`cloud1-d3grv9iycce5a2003`
+- 服务名：`cloud`
+- 环境变量：`WX_ENV_ID / WX_APPID / WX_APPSECRET / JWT_SECRET`
 
-`miniapp/config.js` 中保留真实云环境 ID，`serviceName` 必须和云托管服务名一致。
+部署后先验证：
 
-当前建议值：
+- `GET /health`
+- `GET /api/activity`
 
-```js
-module.exports = {
-  envId: '你的云环境ID',
-  serviceName: 'cloud'
-}
-```
+### 2. 初始化数据
 
-小程序通过 `wx.cloud.callContainer()` 调后端，不直接访问公网 Axios 地址。
+如果后台还没有数据，先执行 seed。
 
-## 后端接口
+如果你有旧数据，再执行 migrate。
 
-### 公共接口
+#### seed
 
-```http
-GET /api/activity
-GET /api/schedules
-POST /api/attendee/query
-GET /api/attendee/code/:attendeeCode
-GET /api/live-images
-```
+目标：
 
-查询参会人请求示例：
+- 创建默认管理员
+- 如果还没有任何活动，则补一个默认活动
 
-```json
-{
-  "name": "张三",
-  "phoneLast4": "8888"
-}
-```
+默认账号：
 
-参会码格式：
+- 用户名：`admin`
+- 密码：取 `ADMIN_DEFAULT_PASSWORD`
 
-```text
-PASS:{attendeeCode}
-```
+#### migrate
 
-例如：
+目标：
 
-```text
-PASS:A202606240001
-```
+- 把旧字段和旧集合兼容迁移到当前模型
+- 保留已存在参会码
+- 不迁移签到数据
 
-### 管理接口
+### 3. 部署 admin-web 到静态托管
 
-所有 `/api/admin/*` 接口都需要 JWT 鉴权，只有 `/api/admin/login` 例外。
+构建完成后上传 `admin-web/dist` 到静态托管子目录：
 
-## 迁移与初始化
+- `admin`
 
-### 初始化默认管理员和默认活动
+建议实际访问地址直接用：
 
-```bash
-cd cloudrun
-npm run seed
-```
+- `https://<静态托管域名>/admin/index.html#/login`
 
-### 迁移旧数据
+不要直接访问：
 
-```bash
-cd cloudrun
-npm run migrate
-```
+- `/login`
+- `/admin`
 
-迁移脚本会尽量把旧集合、旧字段、历史记录转换到新的 camelCase 模型，并跳过已经迁移过的数据。
+因为如果静态托管没有配置重写，根路径会 404 或 `NoSuchKey`。
 
-## 部署
+### 4. 部署 h5-web 到静态托管
 
-### 1) 部署云托管后端
+构建完成后上传 `h5-web/dist` 到静态托管子目录：
 
-先在微信云开发控制台创建云环境，例如 `event-prod`，并创建云托管服务。
+- `h5`
 
-建议云托管服务名：
+建议实际访问地址：
 
-```text
-cloud
-```
+- `https://<静态托管域名>/h5/index.html`
 
-生产环境必须配置：
+### 5. 配置静态托管到 cloudrun 的 API 路由
 
-- `WX_ENV_ID`
-- `WX_APPID`
-- `WX_APPSECRET`
-- `JWT_SECRET`
-- `CORS_ORIGINS`
-- `ADMIN_DEFAULT_USERNAME`
-- `ADMIN_DEFAULT_PASSWORD`
+如果你希望 `admin-web` 和 `h5-web` 用同域名下的 `/api/...` 调后端，必须额外配置：
 
-### 2) 部署管理后台到 CloudBase 静态托管
+- 路径：`/api/*`
+- 目标：云托管服务 `cloud`
 
-```bash
-cd admin-web
-npm run build
-tcb hosting deploy dist admin -e 你的云环境ID
-```
+如果这一步没有配好，前端访问静态托管域名下的 `/api/activity` 时会看到：
 
-### 3) 部署 H5 到 CloudBase 静态托管
+- `404 Not Found`
+- `NoSuchKey`
 
-```bash
-cd h5-web
-npm run build
-tcb hosting deploy dist h5 -e 你的云环境ID
-```
+这说明请求还在打静态文件，而不是云托管服务。
 
-建议子路径：
+如果暂时不配 `/api/*` 路由，也可以把前端环境变量 `VITE_API_BASE_URL` 改成云托管公网地址。
 
-- 管理后台：`/admin`
-- H5 入口：`/h5`
+## 当前访问建议
 
-### 4) 小程序发布
+### 后台
 
-1. 在微信开发者工具中打开 `miniapp`
-2. 检查 `miniapp/config.js`
-3. 预览、真机测试
-4. 上传代码
-5. 提交审核
-6. 审核通过后发布
+使用：
+
+- `https://<静态托管域名>/admin/index.html#/login`
+
+### H5
+
+使用：
+
+- `https://<静态托管域名>/h5/index.html`
+
+### 小程序
+
+通过：
+
+- `wx.cloud.callContainer`
 
 ## 常见问题
 
-### 1. 小程序报 `Cannot GET /api/activity`
+### 1. `Cannot GET /api/activity`
 
-通常是以下原因之一：
+通常表示下面三种情况之一：
 
-- `cloudrun` 没启动
-- `miniapp/config.js` 里的 `serviceName` 没和云托管服务名对齐
-- 后端没有提供 `/api/activity`
+- 云托管没启动
+- 静态托管 `/api/*` 没有转发到云托管
+- `serviceName` 配错
 
-### 2. 小程序报 `Invalid host`
+排查顺序：
 
-一般是云托管调用配置不对，优先检查：
+1. 先看 `/health`
+2. 再看 `/api/activity`
+3. 如果静态托管域名下返回 `NoSuchKey`，就是没配 API 路由
 
-- `miniapp/config.js` 的 `envId`
-- `miniapp/config.js` 的 `serviceName`
-- 云环境是否真的是当前项目所在环境
+### 2. `Invalid host`
 
-### 3. 小程序报 `routeDone with a webviewId ... is not found`
+通常表示：
 
-这类错误通常和页面跳转时机有关，优先检查是否存在：
+- 小程序 `envId` 不对
+- 小程序 `serviceName` 不对
+- 微信开发者工具当前环境和云托管环境不是同一个
 
+### 3. 后台跳到根域名 `/login` 然后 404
+
+原因：
+
+- 后台部署在 `/admin` 子路径
+- 但前端用了普通 history 路由
+
+当前仓库已经改成 hash 路由，部署后应访问：
+
+- `https://<静态托管域名>/admin/index.html#/login`
+
+### 4. `Request failed with status code 405`
+
+优先检查：
+
+- 请求方法是否和接口定义一致
+- 静态托管是否把 `/api/*` 转发到了 cloudrun
+- 是否误把静态托管地址当成了 API 地址
+
+### 5. `routeDone with a webviewId ... is not found`
+
+通常是小程序页面跳转时机问题，优先检查：
+
+- 页面未注册完成就跳转
 - `setTimeout + reLaunch`
-- 页面还没注册就跳转
+- 旧页面路由残留
 
-## 验收标准
+## 验收清单
 
-- `cloudrun` 能启动并通过 `GET /health`
-- 后台能登录、编辑活动、维护日程、导入/导出参会人员
-- H5 能打开并完成查询
-- 小程序能查询当前活动、参会证、座位和路线
-- 参会二维码内容统一为 `PASS:{attendeeCode}`
+- `cloudrun` 已启动
+- `/health` 返回 200
+- `/api/activity` 能返回当前活动
+- 后台可从 `/admin/index.html#/login` 打开
+- H5 可从 `/h5/index.html` 打开
+- 小程序能查询当前活动
+- 手机号查询支持国内与国际号码
+- 参会二维码内容为 `PASS:{attendeeCode}`
 
+## 当前代码改动说明
+
+已完成的重要调整：
+
+- 小程序云托管环境改为 `cloud1-d3grv9iycce5a2003`
+- 小程序服务名改为 `cloud`
+- 后台生产环境 API 地址改为 `/api`
+- 后台路由改为 hash 模式，避免子路径部署后跳到根域名 `/login`
+
+如果要正式上线，接下来最关键的是：
+
+1. 重新部署 `cloudrun`
+2. 重新上传 `admin-web/dist`
+3. 重新上传 `h5-web/dist`
+4. 配好静态托管 `/api/* -> cloudrun` 路由
+5. 再联调 `/health` 和 `/api/activity`

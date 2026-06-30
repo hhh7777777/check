@@ -127,7 +127,7 @@
   <!-- 底部 -->
   <view class="footer">
     <view class="footer-line"></view>
-    <view class="footer-text">本活动提供技术支持</view>
+    <view class="footer-text">活动主办方提供技术支持</view>
     <view class="footer-line"></view>
   </view>
 </view>

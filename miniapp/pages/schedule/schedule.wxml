@@ -35,11 +35,11 @@
           <view class="time-range">{{schedule.startTime}} - {{schedule.endTime}}</view>
           <view class="schedule-title">{{schedule.title}}</view>
           <view class="schedule-info" wx:if="{{schedule.location}}">
-            <text class="info-icon">&#x1F4CD;</text>
+            <text class="info-icon">地点</text>
             <text>{{schedule.location}}</text>
           </view>
           <view class="schedule-info" wx:if="{{schedule.speaker}}">
-            <text class="info-icon">&#x1F464;</text>
+            <text class="info-icon">主讲</text>
             <text>{{schedule.speaker}}</text>
           </view>
           <view class="schedule-remark" wx:if="{{schedule.remark}}">{{schedule.remark}}</view>

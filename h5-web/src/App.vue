@@ -48,9 +48,8 @@
       <section v-else-if="current === 'badge' || current === 'services'" class="card">
         <h2>{{ current === 'badge' ? t.badge : t.services }}</h2>
         <div class="query-grid">
-          <input v-model="query.name" :placeholder="t.namePlaceholder" />
-          <input v-model="query.phoneLast4" :placeholder="t.phonePlaceholder" maxlength="4" />
-          <button class="primary" @click="search">{{ t.search }}</button>
+          <input v-model="query.phone" :placeholder="t.phonePlaceholder" maxlength="20" />
+          <button class="primary" :disabled="loading" @click="search">{{ loading ? '...' : t.search }}</button>
         </div>
         <p v-if="error" class="error-text">{{ error }}</p>
         <div v-if="attendee" class="attendee-panel">
@@ -96,8 +95,7 @@ const dictionaries = {
     services: 'Seat / Dining / Hotel',
     route: 'Route',
     contact: 'Contact',
-    namePlaceholder: 'Your name',
-    phonePlaceholder: 'Last 4 digits of phone',
+    phonePlaceholder: 'Phone number (e.g. +12025550123)',
     search: 'Search',
     code: 'Attendee Code',
     seat: 'Seat',
@@ -105,7 +103,9 @@ const dictionaries = {
     dining: 'Dining',
     hotel: 'Hotel',
     room: 'Room',
-    voucher: 'Voucher Code'
+    voucher: 'Voucher Code',
+    phoneRequired: 'Please enter your phone number',
+    phoneInvalid: 'Invalid phone number format'
   },
   zh: {
     heroEyebrow: '国际参会入口',
@@ -117,8 +117,7 @@ const dictionaries = {
     services: '座位 / 餐序 / 酒店',
     route: '参会路线',
     contact: '联系方式',
-    namePlaceholder: '请输入姓名',
-    phonePlaceholder: '请输入手机号后四位',
+    phonePlaceholder: '请输入中国大陆手机号或国际手机号（如 +12025550123）',
     search: '查询',
     code: '参会码',
     seat: '座位号',
@@ -126,29 +125,36 @@ const dictionaries = {
     dining: '用餐地点',
     hotel: '酒店名称',
     room: '房间号',
-    voucher: '参会凭证'
+    voucher: '参会凭证',
+    phoneRequired: '请输入手机号',
+    phoneInvalid: '手机号格式不正确'
   }
 }
 
-const language = ref(localStorage.getItem('h5_language') || 'en')
+const language = ref((() => { try { return localStorage.getItem('h5_language') || 'en' } catch (_) { return 'en' } })())
 const current = ref('overview')
 const sections = ['overview', 'schedule', 'badge', 'services', 'route', 'contact']
-const activity = reactive({})
+const activity = reactive({ title: '', description: '', startTime: '', location: '', trafficInfo: '', contactPhone: '', contactPerson: '' })
 const schedules = ref([])
 const attendee = ref(null)
 const error = ref('')
-const query = reactive({ name: '', phoneLast4: '' })
+const query = reactive({ phone: '' })
+const loading = ref(false)
 const t = computed(() => dictionaries[language.value])
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
 const load = async () => {
-  const [activityRes, scheduleRes] = await Promise.all([
-    fetch(`${apiBase}/activity`).then((res) => res.json()),
-    fetch(`${apiBase}/schedules`).then((res) => res.json())
-  ])
-  Object.assign(activity, activityRes || {})
-  schedules.value = Array.isArray(scheduleRes) ? scheduleRes : []
+  try {
+    const [activityRes, scheduleRes] = await Promise.all([
+      fetch(`${apiBase}/activity`).then((res) => { if (!res.ok) throw new Error('Network error'); return res.json() }),
+      fetch(`${apiBase}/schedules`).then((res) => { if (!res.ok) throw new Error('Network error'); return res.json() })
+    ])
+    Object.assign(activity, activityRes || {})
+    schedules.value = Array.isArray(scheduleRes) ? scheduleRes : []
+  } catch (e) {
+    console.error('load failed', e)
+  }
 }
 
 const toggleLang = () => {
@@ -159,17 +165,33 @@ const toggleLang = () => {
 const search = async () => {
   error.value = ''
   attendee.value = null
-  const res = await fetch(`${apiBase}/attendee/query`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: query.name, phoneLast4: query.phoneLast4 })
-  })
-  const data = await res.json()
-  if (!res.ok) {
-    error.value = data.error || 'Request failed'
+  const phone = query.phone.trim().replace(/[()\s-]/g, '').replace(/^00(\d+)/, '+$1')
+  if (!phone) {
+    error.value = t.value.phoneRequired || 'Please enter your phone number'
     return
   }
-  attendee.value = data
+  if (!/^1[3-9]\d{9}$/.test(phone) && !/^\+[1-9]\d{5,19}$/.test(phone)) {
+    error.value = t.value.phoneInvalid || 'Invalid phone number'
+    return
+  }
+  loading.value = true
+  try {
+    const res = await fetch(`${apiBase}/attendee/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      error.value = data.error || 'Request failed'
+      return
+    }
+    attendee.value = data
+  } catch (e) {
+    error.value = 'Network error, please try again'
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(load)

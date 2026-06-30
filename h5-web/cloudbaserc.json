@@ -1,0 +1,13 @@
+{
+  "version": "2.0",
+  "envId": "cloud1-d3grv9iycce5a2003",
+  "$schema": "https://framework-1258016615.tcloudbaseapp.com/schema/latest.json",
+  "app": {
+    "serviceName": "h5-web",
+    "framework": "vite",
+    "installCommand": "npm install",
+    "buildCommand": "npm run build",
+    "outputDir": "dist",
+    "deployPath": "/h5"
+  }
+}

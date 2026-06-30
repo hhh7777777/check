@@ -13,7 +13,7 @@ const CONFIG = {
   appId: process.env.WX_APPID || '',
   appSecret: process.env.WX_APPSECRET || '',
   envId: process.env.WX_ENV_ID || '',
-  jwtSecret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-jwt-secret'),
+  jwtSecret: process.env.JWT_SECRET || '',
   port: Number(process.env.PORT || 80),
   corsOrigins: (process.env.CORS_ORIGINS || '')
     .split(',')
@@ -24,28 +24,30 @@ const CONFIG = {
 };
 
 if (!CONFIG.jwtSecret) {
-  throw new Error('JWT_SECRET is required');
-}
-
-if (process.env.NODE_ENV !== 'production' && !process.env.JWT_SECRET) {
-  console.warn('JWT_SECRET is not set, using a local development fallback secret.');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required in production');
+  }
+  CONFIG.jwtSecret = 'dev-jwt-secret';
+  console.warn('⚠ JWT_SECRET is not set. Using development fallback. Do NOT deploy to production without setting JWT_SECRET.');
 }
 
 const COLLECTIONS = {
-  activities: 'activities',
-  schedules: 'schedules',
-  attendees: 'attendees',
-  liveImages: 'live_images',
-  admins: 'admins',
+  activities: 'activity',
+  schedules: 'schedule',
+  attendees: 'attendee',
+  liveImages: 'live_image',
+  admins: 'admin',
 };
 
 const LEGACY_COLLECTIONS = {
-  activities: ['activities', 'activity'],
-  schedules: ['schedules', 'schedule'],
-  attendees: ['attendees', 'attendee'],
-  liveImages: ['live_images', 'live_image'],
-  admins: ['admins', 'admin'],
+  activities: ['activity', 'activities'],
+  schedules: ['schedule', 'schedules'],
+  attendees: ['attendee', 'attendees'],
+  liveImages: ['live_image', 'live_images'],
+  admins: ['admin', 'admins'],
 };
+
+
 
 const app = express();
 const cloud = cloudbase.init({ env: CONFIG.envId || cloudbase.SYMBOL_CURRENT_ENV });
@@ -60,6 +62,7 @@ const excelUpload = multer({
 });
 
 let accessTokenCache = { token: '', expiresAt: 0 };
+let accessTokenPromise = null;
 
 function hasCloudCredentials() {
   return Boolean(CONFIG.envId && CONFIG.appId && CONFIG.appSecret);
@@ -82,11 +85,20 @@ function normalizeText(value) {
 }
 
 function normalizePhone(value) {
-  return String(value || '').replace(/\s+/g, '').trim();
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[０-９＋]/g, (character) => {
+      if (character === '＋') return '+';
+      return String(character.charCodeAt(0) - 0xFF10);
+    })
+    .replace(/[()\s-]/g, '')
+    .replace(/^00(\d+)/, '+$1');
+  return /^\+86(1[3-9]\d{9})$/.test(normalized) ? normalized.slice(3) : normalized;
 }
 
 function validatePhone(phone) {
-  return /^[+\d][\d-]{3,20}$/.test(phone);
+  if (!phone) return false;
+  return /^1[3-9]\d{9}$/.test(phone) || /^\+[1-9]\d{6,14}$/.test(phone);
 }
 
 function toDateCode(dateText) {
@@ -126,20 +138,24 @@ async function getAccessToken() {
   if (accessTokenCache.token && accessTokenCache.expiresAt > now + 600000) {
     return accessTokenCache.token;
   }
-  const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${CONFIG.appId}&secret=${CONFIG.appSecret}`;
-  const response = await fetch(url);
-  const data = await response.json();
-  if (data.errcode) {
-    throw new Error(`failed to fetch access token: ${data.errmsg}`);
-  }
-  accessTokenCache = {
-    token: data.access_token,
-    expiresAt: now + data.expires_in * 1000,
-  };
-  return accessTokenCache.token;
+  if (accessTokenPromise) return accessTokenPromise;
+  accessTokenPromise = (async () => {
+    const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${CONFIG.appId}&secret=${CONFIG.appSecret}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.errcode) {
+      throw new Error(`failed to fetch access token: ${data.errmsg}`);
+    }
+    accessTokenCache = {
+      token: data.access_token,
+      expiresAt: now + data.expires_in * 1000,
+    };
+    return accessTokenCache.token;
+  })().finally(() => { accessTokenPromise = null; });
+  return accessTokenPromise;
 }
 
-async function requestDb(endpoint, payload) {
+async function requestDb(endpoint, payload, retries = 1) {
   const token = await getAccessToken();
   const response = await fetch(`https://api.weixin.qq.com/tcb/${endpoint}?access_token=${token}`, {
     method: 'POST',
@@ -148,23 +164,16 @@ async function requestDb(endpoint, payload) {
   });
   const result = await response.json();
   if (result.errcode && result.errcode !== 0) {
+    if (result.errcode === 40001 && retries > 0) {
+      accessTokenCache = { token: '', expiresAt: 0 };
+      return requestDb(endpoint, payload, retries - 1);
+    }
     throw new Error(`${endpoint} failed: ${result.errmsg} (${result.errcode})`);
   }
   return result;
 }
 
 function stringifyQueryValue(value) {
-  if (value instanceof Date) {
-    return `new Date("${value.toISOString()}")`;
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stringifyQueryValue(item)).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value)
-      .map(([key, item]) => `${JSON.stringify(key)}:${stringifyQueryValue(item)}`)
-      .join(',')}}`;
-  }
   return JSON.stringify(value);
 }
 
@@ -178,7 +187,7 @@ async function dbQueryAll(collection, where = null, orderBy = null) {
   const batchSize = 100;
   let offset = 0;
   while (true) {
-    const whereClause = where ? `.where(${stringifyQueryValue(where)})` : '';
+    const whereClause = where ? `.where(${JSON.stringify(where)})` : '';
     const orderClause = orderBy ? `.orderBy("${orderBy.field}","${orderBy.order || 'asc'}")` : '';
     const query = `db.collection("${collection}")${whereClause}${orderClause}.skip(${offset}).limit(${batchSize}).get()`;
     const batch = await dbQuery(query);
@@ -190,8 +199,9 @@ async function dbQueryAll(collection, where = null, orderBy = null) {
 }
 
 async function dbAdd(collection, data) {
+  const dataStr = JSON.stringify(data);
   return requestDb('databaseadd', {
-    query: `db.collection("${collection}").add({data:${stringifyQueryValue(data)}})`,
+    query: `db.collection("${collection}").add({data:${dataStr}})`,
   });
 }
 
@@ -199,9 +209,9 @@ async function dbUpdateDoc(collection, id, data) {
   const payload = { ...data };
   delete payload._id;
   delete payload._legacyId;
-  return requestDb('databaseupdate', {
-    query: `db.collection("${collection}").doc("${id}").update({data:${stringifyQueryValue(payload)}})`,
-  });
+  const dataStr = JSON.stringify(payload);
+  const query = `db.collection("${collection}").doc("${id}").update({data:${dataStr}})`;
+  return requestDb('databaseupdate', { query });
 }
 
 async function dbRemoveDoc(collection, id) {
@@ -221,21 +231,30 @@ async function getCollectionRows(candidates) {
   return { collection: candidates[0], rows: [] };
 }
 
+function sz(v) {
+  return String(v || '')
+    .replace(/\n/g, ' ')
+    .replace(/\r/g, ' ')
+    .replace(/"/g, "'")
+    .replace(/[\uFFFD\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF]/g, '')
+    .trim();
+}
+
 function normalizeActivity(item) {
   return {
     _id: item._id,
-    title: item.title || item.name || '',
+    title: sz(item.title || item.name),
     startTime: item.startTime || item.start_time || '',
     endTime: item.endTime || item.end_time || '',
-    location: item.location || '',
-    organizer: item.organizer || '',
-    coOrganizer: item.coOrganizer || item.co_organizer || '',
-    description: item.description || '',
-    trafficInfo: item.trafficInfo || item.traffic_info || '',
+    location: sz(item.location),
+    organizer: sz(item.organizer),
+    coOrganizer: sz(item.coOrganizer || item.co_organizer),
+    description: sz(item.description),
+    trafficInfo: sz(item.trafficInfo || item.traffic_info),
     mapImageFileID: item.mapImageFileID || item.mapImageFileId || item.mapFileId || '',
     coverImageFileID: item.coverImageFileID || item.coverImageFileId || item.coverFileId || '',
     contactPhone: item.contactPhone || item.contact_phone || '',
-    contactPerson: item.contactPerson || item.contact_person || '',
+    contactPerson: sz(item.contactPerson || item.contact_person),
     createdAt: item.createdAt || item.created_at || '',
     updatedAt: item.updatedAt || item.updated_at || '',
     isCurrent: item.isCurrent === true || item.isCurrent === 1 || item.is_current === 1,
@@ -276,6 +295,12 @@ function normalizeAttendee(item) {
     hotelName: item.hotelName || item.hotel || item.hotel_name || '',
     roomNo: item.roomNo || item.room_no || '',
     remark: item.remark || '',
+    checkedIn:
+      item.checkedIn === true ||
+      item.checkedIn === 1 ||
+      item.checked_in === true ||
+      item.checked_in === 1,
+    checkedInAt: item.checkedInAt || item.checked_in_at || '',
     createdAt: item.createdAt || item.created_at || '',
     updatedAt: item.updatedAt || item.updated_at || '',
   };
@@ -299,13 +324,49 @@ function normalizeLiveImage(item) {
 }
 
 function normalizeAdmin(item) {
+  const username = item.username || '';
+  const isDefaultSuperAdmin = username === CONFIG.defaultAdminUsername;
   return {
     _id: item._id,
-    username: item.username || '',
+    username,
     passwordHash: item.passwordHash || item.password_hash || '',
-    role: item.role || 'admin',
+    name: item.name || item.realName || item.real_name || '',
+    department: item.department || '',
+    role: isDefaultSuperAdmin ? 'superadmin' : 'user',
+    status: item.status || 'active',
+    mustChangePassword: Boolean(item.mustChangePassword),
+    approvedBy: item.approvedBy || '',
+    approvedAt: item.approvedAt || '',
+    lastLoginAt: item.lastLoginAt || '',
     createdAt: item.createdAt || item.created_at || '',
+    updatedAt: item.updatedAt || item.updated_at || '',
   };
+}
+
+function adminPublicView(admin) {
+  return {
+    _id: admin._id,
+    username: admin.username,
+    name: admin.name,
+    department: admin.department,
+    role: admin.role,
+    status: admin.status,
+    mustChangePassword: admin.mustChangePassword,
+    approvedBy: admin.approvedBy,
+    approvedAt: admin.approvedAt,
+    lastLoginAt: admin.lastLoginAt,
+    createdAt: admin.createdAt,
+    updatedAt: admin.updatedAt,
+  };
+}
+
+function validateUsername(username) {
+  return /^[A-Za-z0-9_.-]{3,32}$/.test(username);
+}
+
+function validatePassword(password) {
+  return typeof password === 'string' && password.length >= 8 && password.length <= 72
+    && /[A-Za-z]/.test(password) && /\d/.test(password);
 }
 
 function attendeePublicView(item) {
@@ -321,6 +382,27 @@ function attendeePublicView(item) {
     roomNo: item.roomNo,
     remark: item.remark,
     qrContent: item.attendeeCode ? `PASS:${item.attendeeCode}` : '',
+  };
+}
+
+async function markAttendeeCheckedIn(item, source = 'query') {
+  if (!item || item.checkedIn) {
+    return item;
+  }
+  const checkedInAt = nowIso();
+  await dbUpdateDoc(COLLECTIONS.attendees, item._id, {
+    ...item,
+    checkedIn: true,
+    checkedInAt,
+    checkInSource: source,
+    updatedAt: checkedInAt,
+  });
+  return {
+    ...item,
+    checkedIn: true,
+    checkedInAt,
+    checkInSource: source,
+    updatedAt: checkedInAt,
   };
 }
 
@@ -424,19 +506,18 @@ async function ensureDefaultAdmin() {
   const admins = rows.map(normalizeAdmin);
   const existing = admins.find((item) => item.username === CONFIG.defaultAdminUsername);
   if (existing) {
-    await dbUpdateDoc(collection, existing._id, {
-      username: CONFIG.defaultAdminUsername,
-      passwordHash: hashPassword(CONFIG.defaultAdminPassword),
-      role: 'admin',
-      updatedAt: nowIso(),
-    });
     return;
   }
   await dbAdd(collection, {
     username: CONFIG.defaultAdminUsername,
     passwordHash: hashPassword(CONFIG.defaultAdminPassword),
-    role: 'admin',
+    name: '超级管理员',
+    department: '系统管理',
+    role: 'superadmin',
+    status: 'active',
+    mustChangePassword: CONFIG.defaultAdminPassword === 'admin123',
     createdAt: nowIso(),
+    updatedAt: nowIso(),
   });
 }
 
@@ -611,6 +692,8 @@ async function importAttendees(activityId, rows) {
       hotelName: row.hotelName,
       roomNo: row.roomNo,
       remark: row.remark,
+      checkedIn: false,
+      checkedInAt: '',
       createdAt: nowIso(),
       updatedAt: nowIso(),
     });
@@ -631,27 +714,19 @@ function requireFields(body, fields) {
 }
 
 async function updateActivityRecord(activityId, body) {
-  const current = await getActivityById(activityId);
-  if (!current) {
-    const error = new Error('活动不存在');
-    error.statusCode = 404;
+  const allowed = ['title', 'startTime', 'endTime', 'location', 'organizer', 'coOrganizer', 'description', 'trafficInfo', 'mapImageFileID', 'coverImageFileID', 'contactPhone', 'contactPerson'];
+  const payload = { updatedAt: nowIso() };
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      payload[key] = sz(body[key]);
+    }
+  }
+  if (Object.keys(payload).length <= 1) {
+    const error = new Error('没有要更新的字段');
+    error.statusCode = 400;
     throw error;
   }
-  await dbUpdateDoc(COLLECTIONS.activities, activityId, {
-    title: normalizeText(body.title ?? current.title),
-    startTime: normalizeText(body.startTime ?? current.startTime),
-    endTime: normalizeText(body.endTime ?? current.endTime),
-    location: normalizeText(body.location ?? current.location),
-    organizer: normalizeText(body.organizer ?? current.organizer),
-    coOrganizer: normalizeText(body.coOrganizer ?? current.coOrganizer),
-    description: normalizeText(body.description ?? current.description),
-    trafficInfo: normalizeText(body.trafficInfo ?? current.trafficInfo),
-    mapImageFileID: normalizeText(body.mapImageFileID ?? current.mapImageFileID),
-    coverImageFileID: normalizeText(body.coverImageFileID ?? current.coverImageFileID),
-    contactPhone: normalizeText(body.contactPhone ?? current.contactPhone),
-    contactPerson: normalizeText(body.contactPerson ?? current.contactPerson),
-    updatedAt: nowIso(),
-  });
+  await dbUpdateDoc(COLLECTIONS.activities, activityId, payload);
 }
 
 async function sendPublicActivity(_req, res) {
@@ -684,7 +759,33 @@ async function sendPublicAttendee(req, res) {
     res.status(404).json({ error: '暂未查询到您的参会信息，请联系工作人员。' });
     return;
   }
-  res.json(attendeePublicView(target));
+  const checkedTarget = await markAttendeeCheckedIn(target, 'name_phoneLast4_query');
+  res.json(attendeePublicView(checkedTarget));
+}
+
+async function sendPublicAttendeeByPhone(req, res) {
+  const phone = normalizePhone(req.body.phone);
+  if (!phone) {
+    res.status(400).json({ error: 'phone is required' });
+    return;
+  }
+  if (!validatePhone(phone)) {
+    res.status(400).json({ error: '手机号格式不正确，请输入中国大陆手机号或带国家区号的国际手机号' });
+    return;
+  }
+  const activity = await getCurrentActivity();
+  if (!activity) {
+    res.status(404).json({ error: '当前没有可用活动' });
+    return;
+  }
+  const attendees = await getAttendeesByActivity(activity._id);
+  const target = attendees.find((item) => normalizePhone(item.phone) === phone);
+  if (!target) {
+    res.status(404).json({ error: '暂未查询到您的参会信息，请联系工作人员。' });
+    return;
+  }
+  const checkedTarget = await markAttendeeCheckedIn(target, 'phone_query');
+  res.json(attendeePublicView(checkedTarget));
 }
 
 async function sendPublicImages(_req, res) {
@@ -697,18 +798,33 @@ async function sendPublicImages(_req, res) {
   res.json(await enrichImages(images));
 }
 
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) {
     res.status(401).json({ error: '未登录或登录已失效' });
     return;
   }
   try {
-    req.admin = jwt.verify(header.slice(7), CONFIG.jwtSecret);
+    const payload = jwt.verify(header.slice(7), CONFIG.jwtSecret);
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+    const admin = admins.find((item) => item._id === payload.adminId);
+    if (!admin || admin.status !== 'active') {
+      res.status(401).json({ error: '账号已停用、待审核或不存在' });
+      return;
+    }
+    req.admin = { ...payload, ...adminPublicView(admin) };
     next();
   } catch (_error) {
     res.status(401).json({ error: '未登录或登录已失效' });
   }
+}
+
+function superAdminMiddleware(req, res, next) {
+  if (req.admin?.role !== 'superadmin') {
+    res.status(403).json({ error: '仅超级管理员可以执行此操作' });
+    return;
+  }
+  next();
 }
 
 app.use(
@@ -730,7 +846,29 @@ app.use(
 );
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+const rateLimitStore = new Map();
+function rateLimit({ windowMs = 60000, max = 30 } = {}) {
+  return (req, res, next) => {
+    const key = req.ip;
+    const now = Date.now();
+    const entry = rateLimitStore.get(key);
+    if (!entry || now - entry.start > windowMs) {
+      rateLimitStore.set(key, { start: now, count: 1 });
+      return next();
+    }
+    entry.count += 1;
+    if (entry.count > max) {
+      res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+      return;
+    }
+    next();
+  };
+}
+
+const publicRateLimit = rateLimit({ windowMs: 60000, max: 20 });
+const loginRateLimit = rateLimit({ windowMs: 300000, max: 10 });
+const registerRateLimit = rateLimit({ windowMs: 3600000, max: 5 });
 
 app.get('/health', async (_req, res, next) => {
   try {
@@ -751,7 +889,7 @@ app.get('/health', async (_req, res, next) => {
   }
 });
 
-app.post('/api/admin/login', async (req, res, next) => {
+app.post('/api/admin/login', loginRateLimit, async (req, res, next) => {
   try {
     requireFields(req.body, ['username', 'password']);
     await seedBaseData();
@@ -761,12 +899,157 @@ app.post('/api/admin/login', async (req, res, next) => {
       res.status(401).json({ error: '用户名或密码错误' });
       return;
     }
+    if (admin.status === 'pending') {
+      res.status(403).json({ error: '账号正在等待超级管理员审核' });
+      return;
+    }
+    if (admin.status !== 'active') {
+      res.status(403).json({ error: '账号已被停用，请联系超级管理员' });
+      return;
+    }
+    const lastLoginAt = nowIso();
+    await dbUpdateDoc(COLLECTIONS.admins, admin._id, { lastLoginAt, updatedAt: lastLoginAt });
     const token = jwt.sign(
-      { adminId: admin._id, username: admin.username, role: admin.role },
+      { adminId: admin._id, username: admin.username, role: admin.role, department: admin.department },
       CONFIG.jwtSecret,
       { expiresIn: '24h' }
     );
-    res.json({ token, admin: { username: admin.username, role: admin.role } });
+    res.json({ token, admin: { ...adminPublicView(admin), lastLoginAt } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/register', registerRateLimit, async (req, res, next) => {
+  try {
+    requireFields(req.body, ['username', 'password', 'name', 'department']);
+    const username = normalizeText(req.body.username);
+    const name = normalizeText(req.body.name);
+    const department = normalizeText(req.body.department);
+    if (!validateUsername(username)) {
+      res.status(400).json({ error: '用户名须为 3-32 位字母、数字、点、下划线或短横线' });
+      return;
+    }
+    if (!validatePassword(req.body.password)) {
+      res.status(400).json({ error: '密码须为 8-72 位，且同时包含字母和数字' });
+      return;
+    }
+    if (name.length > 50 || department.length > 50) {
+      res.status(400).json({ error: '姓名和部门不能超过 50 个字符' });
+      return;
+    }
+    await seedBaseData();
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+    if (admins.some((item) => item.username.toLowerCase() === username.toLowerCase())) {
+      res.status(409).json({ error: '用户名已存在' });
+      return;
+    }
+    const timestamp = nowIso();
+    await dbAdd(COLLECTIONS.admins, {
+      username,
+      passwordHash: hashPassword(req.body.password),
+      name,
+      department,
+      role: 'user',
+      status: 'pending',
+      mustChangePassword: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    res.status(201).json({ success: true, message: '注册成功，请等待超级管理员审核' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/me', authMiddleware, (req, res) => res.json(req.admin));
+
+app.put('/api/admin/me/password', authMiddleware, async (req, res, next) => {
+  try {
+    requireFields(req.body, ['currentPassword', 'newPassword']);
+    if (!validatePassword(req.body.newPassword)) {
+      res.status(400).json({ error: '新密码须为 8-72 位，且同时包含字母和数字' });
+      return;
+    }
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+    const admin = admins.find((item) => item._id === req.admin._id);
+    if (!admin || !verifyPassword(req.body.currentPassword, admin.passwordHash)) {
+      res.status(400).json({ error: '当前密码不正确' });
+      return;
+    }
+    await dbUpdateDoc(COLLECTIONS.admins, admin._id, {
+      passwordHash: hashPassword(req.body.newPassword),
+      mustChangePassword: false,
+      updatedAt: nowIso(),
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/users', authMiddleware, superAdminMiddleware, async (_req, res, next) => {
+  try {
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows
+      .map(normalizeAdmin)
+      .map(adminPublicView)
+      .sort((a, b) => Number(a.role !== 'superadmin') - Number(b.role !== 'superadmin')
+        || new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    res.json(admins);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/admin/users/:id/status', authMiddleware, superAdminMiddleware, async (req, res, next) => {
+  try {
+    const status = normalizeText(req.body.status);
+    if (!['active', 'disabled'].includes(status)) {
+      res.status(400).json({ error: '账号状态无效' });
+      return;
+    }
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+    const target = admins.find((item) => item._id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: '账号不存在' });
+      return;
+    }
+    if (target.role === 'superadmin') {
+      res.status(400).json({ error: '不能修改超级管理员账号状态' });
+      return;
+    }
+    const timestamp = nowIso();
+    await dbUpdateDoc(COLLECTIONS.admins, target._id, {
+      status,
+      approvedBy: status === 'active' ? req.admin.username : target.approvedBy,
+      approvedAt: status === 'active' ? timestamp : target.approvedAt,
+      updatedAt: timestamp,
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/admin/users/:id/reset-password', authMiddleware, superAdminMiddleware, async (req, res, next) => {
+  try {
+    requireFields(req.body, ['password']);
+    if (!validatePassword(req.body.password)) {
+      res.status(400).json({ error: '临时密码须为 8-72 位，且同时包含字母和数字' });
+      return;
+    }
+    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+    const target = admins.find((item) => item._id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: '账号不存在' });
+      return;
+    }
+    await dbUpdateDoc(COLLECTIONS.admins, target._id, {
+      passwordHash: hashPassword(req.body.password),
+      mustChangePassword: true,
+      updatedAt: nowIso(),
+    });
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -1233,9 +1516,9 @@ app.get('/api/schedules', async (req, res, next) => {
   }
 });
 
-app.post('/api/attendee/query', async (req, res, next) => {
+app.post('/api/attendee/query', publicRateLimit, async (req, res, next) => {
   try {
-    await sendPublicAttendee(req, res);
+    await sendPublicAttendeeByPhone(req, res);
   } catch (error) {
     next(error);
   }
@@ -1289,10 +1572,10 @@ app.get('/api/miniapp/getLiveImages', async (req, res, next) => {
     next(error);
   }
 });
-app.post('/api/miniapp/queryAttendee', async (req, res, next) => {
+app.post('/api/miniapp/queryAttendee', publicRateLimit, async (req, res, next) => {
   try {
-    req.body = { name: req.body.name, phoneLast4: req.body.phoneLast4 || req.body.last4 };
-    await sendPublicAttendee(req, res);
+    req.body = { phone: req.body.phone };
+    await sendPublicAttendeeByPhone(req, res);
   } catch (error) {
     next(error);
   }
@@ -1319,10 +1602,10 @@ app.get('/api/h5/getLiveImages', async (req, res, next) => {
     next(error);
   }
 });
-app.post('/api/h5/queryAttendee', async (req, res, next) => {
+app.post('/api/h5/queryAttendee', publicRateLimit, async (req, res, next) => {
   try {
-    req.body = { name: req.body.name, phoneLast4: req.body.phoneLast4 || req.body.last4 };
-    await sendPublicAttendee(req, res);
+    req.body = { phone: req.body.phone };
+    await sendPublicAttendeeByPhone(req, res);
   } catch (error) {
     next(error);
   }
@@ -1357,4 +1640,20 @@ module.exports = {
   seedBaseData,
   migrateLegacyData,
   ensureDefaultAdmin,
+  hashPassword,
+  verifyPassword,
+  normalizePhone,
+  validatePhone,
+  normalizeText,
+  normalizeActivity,
+  normalizeSchedule,
+  normalizeAttendee,
+  normalizeLiveImage,
+  normalizeAdmin,
+  adminPublicView,
+  validateUsername,
+  validatePassword,
+  attendeePublicView,
+  sz,
+  CONFIG,
 };

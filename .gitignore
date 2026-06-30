@@ -1,3 +1,8 @@
+# Build artifacts
+*.zip
+*.tar.gz
+*.tgz
+
 # Windows
 [Dd]esktop.ini
 Thumbs.db
@@ -16,3 +21,8 @@ dist/
 .env
 .env.local
 *.log
+
+# Temp files
+.tmp-*
+.tmp.*
+*.txt

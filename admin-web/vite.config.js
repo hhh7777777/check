@@ -1,13 +1,12 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import path from 'node:path'
 
 const CLOUD_FUNCTION_URL = process.env.VITE_CLOUDRUN_URL || 'http://localhost:80'
 
 export default defineConfig({
   plugins: [vue()],
   root: '.',
-  base: './',
+  base: '/admin/',
   server: {
     port: 5173,
     proxy: {
@@ -19,9 +18,6 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
-    rollupOptions: {
-      input: path.resolve(process.cwd(), 'index.html')
-    }
+    emptyOutDir: true
   }
 })

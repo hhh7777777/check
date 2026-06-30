@@ -1,8 +1,28 @@
 {
   "version": "2.0",
-  "envId": "cloud-d7g2mv45l2990eaae",
+  "envId": "cloud1-d3grv9iycce5a2003",
   "$schema": "https://framework-1258016615.tcloudbaseapp.com/schema/latest.json",
   "cloudrun": {
+    "name": "cloud",
+    "containerPort": 80,
+    "envVariables": {
+      "WX_ENV_ID": "cloud1-d3grv9iycce5a2003",
+      "NODE_ENV": "production"
+    },
+    "overwrite": true
+  },
+  "framework": {
+    "plugins": {
+      "cloudrun": {
+        "use": "@cloudbase/framework-plugin-container",
+        "inputs": {
+          "serviceName": "cloud",
+          "containerPort": 80
+        }
+      }
+    },
     "name": "cloud"
-  }
+  },
+  "functionRoot": "./functions",
+  "functions": []
 }

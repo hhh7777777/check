@@ -6,10 +6,30 @@ function validateConfig() {
   if (!envIdValid || !serviceNameValid) {
     const message = '云托管配置无效，请检查 miniapp/config.js 中的 envId 和 serviceName'
     console.error(message, config)
-    wx.showModal({ title: '配置错误', content: message, showCancel: false })
+    if (!validateConfig._shown) {
+      validateConfig._shown = true
+      wx.showModal({ title: '配置错误', content: message, showCancel: false })
+    }
     return false
   }
   return true
+}
+
+function normalizePhone(phone) {
+  const normalized = String(phone || '')
+    .trim()
+    .replace(/[０-９＋]/g, (character) => {
+      if (character === '＋') return '+'
+      return String(character.charCodeAt(0) - 0xFF10)
+    })
+    .replace(/[()\s-]/g, '')
+    .replace(/^00(\d+)/, '+$1')
+  return /^\+86(1[3-9]\d{9})$/.test(normalized) ? normalized.slice(3) : normalized
+}
+
+function isValidPhone(phone) {
+  const normalized = normalizePhone(phone)
+  return /^1[3-9]\d{9}$/.test(normalized) || /^\+[1-9]\d{6,14}$/.test(normalized)
 }
 
 function request(path, method = 'GET', data = {}) {
@@ -40,11 +60,12 @@ function request(path, method = 'GET', data = {}) {
 }
 
 module.exports = {
+  normalizePhone,
+  isValidPhone,
   getActivity: () => request('/api/activity'),
   getSchedules: () => request('/api/schedules'),
   queryAttendee: (data) => request('/api/attendee/query', 'POST', {
-    name: data.name,
-    phoneLast4: data.phoneLast4 || data.last4
+    phone: data.phone
   }),
   getLiveImages: () => request('/api/live-images')
 }

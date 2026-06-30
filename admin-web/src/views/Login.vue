@@ -13,6 +13,7 @@
         <el-button type="primary" class="submit-btn" :loading="loading" @click="handleSubmit">
           登录
         </el-button>
+        <div class="register-link">还没有账号？<router-link to="/register">申请注册</router-link></div>
       </el-form>
     </div>
   </div>
@@ -28,8 +29,8 @@ const router = useRouter()
 const formRef = ref()
 const loading = ref(false)
 const form = reactive({
-  username: 'admin',
-  password: 'admin123'
+  username: '',
+  password: ''
 })
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -80,5 +81,11 @@ p {
 
 .submit-btn {
   width: 100%;
+}
+
+.register-link {
+  margin-top: 18px;
+  text-align: center;
+  color: #667085;
 }
 </style>

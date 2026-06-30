@@ -4,8 +4,8 @@ Page({
   data: {
     statusBarHeight: 0,
     activity: {},
-    name: '',
-    phoneLast4: ''
+    phone: '',
+    queryReady: false
   },
 
   onLoad() {
@@ -25,36 +25,45 @@ Page({
     }
   },
 
-  onNameInput(e) {
-    this.setData({ name: e.detail.value })
-  },
-
   onPhoneInput(e) {
-    this.setData({ phoneLast4: e.detail.value })
+    const phone = e.detail.value
+    this.setData({ phone, queryReady: api.isValidPhone(phone) })
   },
 
   async onQuery() {
-    const { name, phoneLast4 } = this.data
-    if (!name.trim() || phoneLast4.length !== 4) {
-      wx.showToast({ title: '请输入姓名和手机号后四位', icon: 'none' })
+    const phone = api.normalizePhone(this.data.phone)
+    if (!api.isValidPhone(phone)) {
+      wx.showToast({ title: '请输入正确手机号', icon: 'none' })
       return
     }
 
     wx.showLoading({ title: '查询中...' })
     try {
-      const res = await api.queryAttendee({ name: name.trim(), phoneLast4 })
-      wx.hideLoading()
-
+      const res = await api.queryAttendee({ phone })
       if (res && res.data) {
         const attendee = Array.isArray(res.data) ? res.data[0] : res.data
-        wx.setStorageSync('attendeeInfo', attendee)
-        wx.redirectTo({ url: '/pages/index/index' })
+        const safeAttendee = {
+          attendeeCode: attendee.attendeeCode || '',
+          name: attendee.name || '',
+          organization: attendee.organization || '',
+          identityType: attendee.identityType || '',
+          seatNo: attendee.seatNo || '',
+          tableNo: attendee.tableNo || '',
+          diningPlace: attendee.diningPlace || '',
+          hotelName: attendee.hotelName || '',
+          roomNo: attendee.roomNo || '',
+          remark: attendee.remark || '',
+          qrContent: attendee.qrContent || (attendee.attendeeCode ? `PASS:${attendee.attendeeCode}` : '')
+        }
+        try { wx.setStorageSync('attendeeInfo', safeAttendee) } catch (_) {}
+        wx.reLaunch({ url: '/pages/index/index' })
       } else {
         wx.showToast({ title: '未查询到参会信息', icon: 'none' })
       }
-    } catch (err) {
-      wx.hideLoading()
+    } catch (_err) {
       wx.showToast({ title: '未查询到您的参会信息，请联系工作人员', icon: 'none' })
+    } finally {
+      wx.hideLoading()
     }
   },
 

@@ -1,6 +1,11 @@
 import request from '../utils/request'
 
 export const adminLogin = (data) => request.post('/admin/login', data)
+export const adminRegister = (data) => request.post('/admin/register', data)
+export const getAdminUsers = () => request.get('/admin/users')
+export const updateAdminUserStatus = (id, status) => request.put(`/admin/users/${id}/status`, { status })
+export const resetAdminUserPassword = (id, password) =>
+  request.put(`/admin/users/${id}/reset-password`, { password })
 
 export const getDashboard = () => request.get('/admin/dashboard')
 
