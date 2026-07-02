@@ -260,6 +260,8 @@ function normalizeActivity(item) {
     coverImageFileID: item.coverImageFileID || item.coverImageFileId || item.coverFileId || '',
     contactPhone: item.contactPhone || item.contact_phone || '',
     contactPerson: sz(item.contactPerson || item.contact_person),
+    latitude: Number(item.latitude || 0),
+    longitude: Number(item.longitude || 0),
     globalBgImageFileID: item.globalBgImageFileID || '',
     introBgImageFileID: item.introBgImageFileID || '',
     scheduleBgImageFileID: item.scheduleBgImageFileID || '',
@@ -268,6 +270,11 @@ function normalizeActivity(item) {
     routeBgImageFileID: item.routeBgImageFileID || '',
     liveBgImageFileID: item.liveBgImageFileID || '',
     routePdfFileID: item.routePdfFileID || '',
+    globalTextColor: item.globalTextColor || '',
+    cardTitleColor: item.cardTitleColor || '',
+    cardSubtitleColor: item.cardSubtitleColor || '',
+    primaryColor: item.primaryColor || '',
+    accentColor: item.accentColor || '',
     createdAt: item.createdAt || item.created_at || '',
     updatedAt: item.updatedAt || item.updated_at || '',
     isCurrent: item.isCurrent === true || item.isCurrent === 1 || item.is_current === 1,
@@ -303,10 +310,6 @@ function normalizeAttendee(item) {
     organization: item.organization || '',
     identityType: item.identityType || item.identity_type || '',
     seatNo: item.seatNo || item.seat_no || '',
-    tableNo: item.tableNo || item.table_no || '',
-    diningPlace: item.diningPlace || item.dining_place || item.diningLocation || '',
-    hotelName: item.hotelName || item.hotel || item.hotel_name || '',
-    roomNo: item.roomNo || item.room_no || '',
     remark: item.remark || '',
     checkedIn:
       item.checkedIn === true ||
@@ -384,15 +387,12 @@ function validatePassword(password) {
 
 function attendeePublicView(item) {
   return {
+    activityId: item.activityId,
     attendeeCode: item.attendeeCode,
     name: item.name,
     organization: item.organization,
     identityType: item.identityType,
     seatNo: item.seatNo,
-    tableNo: item.tableNo,
-    diningPlace: item.diningPlace,
-    hotelName: item.hotelName,
-    roomNo: item.roomNo,
     remark: item.remark,
     qrContent: item.attendeeCode ? `PASS:${item.attendeeCode}` : '',
   };
@@ -709,10 +709,6 @@ async function parseImportRows(buffer) {
     organization: normalizeText(row['单位'] ?? row.organization),
     identityType: normalizeText(row['身份类型'] ?? row.identityType),
     seatNo: normalizeText(row['座位号'] ?? row.seatNo),
-    tableNo: normalizeText(row['餐桌号'] ?? row.tableNo),
-    diningPlace: normalizeText(row['用餐地点'] ?? row.diningPlace),
-    hotelName: normalizeText(row['酒店名称'] ?? row.hotelName),
-    roomNo: normalizeText(row['房间号'] ?? row.roomNo),
     remark: normalizeText(row['备注'] ?? row.remark),
   }));
 }
@@ -759,10 +755,6 @@ async function importAttendees(activityId, rows) {
       organization: row.organization,
       identityType: row.identityType,
       seatNo: row.seatNo,
-      tableNo: row.tableNo,
-      diningPlace: row.diningPlace,
-      hotelName: row.hotelName,
-      roomNo: row.roomNo,
       remark: row.remark,
       checkedIn: false,
       checkedInAt: '',
@@ -786,11 +778,11 @@ function requireFields(body, fields) {
 }
 
 async function updateActivityRecord(activityId, body) {
-  const allowed = ['title', 'startTime', 'endTime', 'location', 'organizer', 'coOrganizer', 'description', 'trafficInfo', 'mapImageFileID', 'coverImageFileID', 'contactPhone', 'contactPerson', 'globalBgImageFileID', 'introBgImageFileID', 'scheduleBgImageFileID', 'badgeBgImageFileID', 'seatingBgImageFileID', 'routeBgImageFileID', 'liveBgImageFileID', 'routePdfFileID'];
+  const allowed = ['title', 'startTime', 'endTime', 'location', 'organizer', 'coOrganizer', 'description', 'trafficInfo', 'mapImageFileID', 'coverImageFileID', 'contactPhone', 'contactPerson', 'latitude', 'longitude', 'globalBgImageFileID', 'introBgImageFileID', 'scheduleBgImageFileID', 'badgeBgImageFileID', 'seatingBgImageFileID', 'routeBgImageFileID', 'liveBgImageFileID', 'routePdfFileID', 'globalTextColor', 'cardTitleColor', 'cardSubtitleColor', 'primaryColor', 'accentColor'];
   const payload = { updatedAt: nowIso() };
   for (const key of allowed) {
     if (body[key] !== undefined) {
-      payload[key] = sz(body[key]);
+      payload[key] = ['latitude', 'longitude'].includes(key) ? Number(body[key] || 0) : sz(body[key]);
     }
   }
   if (Object.keys(payload).length <= 1) {
@@ -866,8 +858,10 @@ async function sendPublicImages(_req, res) {
     res.json([]);
     return;
   }
-  const images = (await getLiveImagesByActivity(activity._id)).filter((item) => item.isVisible);
-  res.json(await enrichImages(images));
+  const images = (await getLiveImagesByActivity(activity._id))
+    .filter((item) => item.isVisible)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  res.json(await enrichImages(images.slice(0, 1)));
 }
 
 async function authMiddleware(req, res, next) {
@@ -964,7 +958,7 @@ app.get('/health', async (_req, res, next) => {
 app.post('/api/admin/login', loginRateLimit, async (req, res, next) => {
   try {
     requireFields(req.body, ['username', 'password']);
-    await seedBaseData();
+    if (process.env.NODE_ENV !== 'test') await seedBaseData();
     const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
     const admin = admins.find((item) => item.username === req.body.username);
     if (!admin || !verifyPassword(req.body.password, admin.passwordHash)) {
@@ -1010,7 +1004,7 @@ app.post('/api/admin/register', registerRateLimit, async (req, res, next) => {
       res.status(400).json({ error: '姓名和部门不能超过 50 个字符' });
       return;
     }
-    await seedBaseData();
+    if (process.env.NODE_ENV !== 'test') await seedBaseData();
     const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
     if (admins.some((item) => item.username.toLowerCase() === username.toLowerCase())) {
       res.status(409).json({ error: '用户名已存在' });
@@ -1206,6 +1200,8 @@ app.post('/api/admin/activities', authMiddleware, async (req, res, next) => {
       startTime: normalizeText(req.body.startTime),
       endTime: normalizeText(req.body.endTime),
       location: normalizeText(req.body.location),
+      latitude: Number(req.body.latitude || 0),
+      longitude: Number(req.body.longitude || 0),
       organizer: normalizeText(req.body.organizer),
       coOrganizer: normalizeText(req.body.coOrganizer),
       description: normalizeText(req.body.description),
@@ -1408,7 +1404,7 @@ app.get('/api/admin/attendees', authMiddleware, async (req, res, next) => {
 app.post('/api/admin/attendees', authMiddleware, async (req, res, next) => {
   try {
     const activity = await getAdminActivity(req);
-    const { name, phone, organization, identityType, seatNo, tableNo, diningPlace, hotelName, roomNo, remark } = req.body || {};
+    const { name, phone, organization, identityType, seatNo, remark } = req.body || {};
     if (!name || !phone) {
       res.status(400).json({ error: '姓名和手机号不能为空' });
       return;
@@ -1433,10 +1429,6 @@ app.post('/api/admin/attendees', authMiddleware, async (req, res, next) => {
       organization: normalizeText(organization || ''),
       identityType: normalizeText(identityType || ''),
       seatNo: normalizeText(seatNo || ''),
-      tableNo: normalizeText(tableNo || ''),
-      diningPlace: normalizeText(diningPlace || ''),
-      hotelName: normalizeText(hotelName || ''),
-      roomNo: normalizeText(roomNo || ''),
       remark: normalizeText(remark || ''),
       checkedIn: false,
       checkedInAt: '',
@@ -1484,10 +1476,6 @@ app.put('/api/admin/attendees/:id', authMiddleware, async (req, res, next) => {
       organization: normalizeText(req.body.organization ?? target.organization),
       identityType: normalizeText(req.body.identityType ?? target.identityType),
       seatNo: normalizeText(req.body.seatNo ?? target.seatNo),
-      tableNo: normalizeText(req.body.tableNo ?? target.tableNo),
-      diningPlace: normalizeText(req.body.diningPlace ?? target.diningPlace),
-      hotelName: normalizeText(req.body.hotelName ?? target.hotelName),
-      roomNo: normalizeText(req.body.roomNo ?? target.roomNo),
       remark: normalizeText(req.body.remark ?? target.remark),
       updatedAt: nowIso(),
     });
@@ -1528,10 +1516,6 @@ app.get('/api/admin/attendees/export', authMiddleware, async (req, res, next) =>
       单位: item.organization,
       身份类型: item.identityType,
       座位号: item.seatNo,
-      餐桌号: item.tableNo,
-      用餐地点: item.diningPlace,
-      酒店名称: item.hotelName,
-      房间号: item.roomNo,
       备注: item.remark,
       参会码: item.attendeeCode,
       签到状态: item.checkedIn ? '已签到' : '未签到',
@@ -1747,6 +1731,11 @@ app.get('/api/miniapp/uiConfig', async (req, res, next) => {
       routeBgImageUrl: enriched.routeBgImageUrl || '',
       liveBgImageUrl: enriched.liveBgImageUrl || '',
       routePdfUrl: enriched.routePdfUrl || '',
+      globalTextColor: enriched.globalTextColor || '',
+      cardTitleColor: enriched.cardTitleColor || '',
+      cardSubtitleColor: enriched.cardSubtitleColor || '',
+      primaryColor: enriched.primaryColor || '',
+      accentColor: enriched.accentColor || '',
     });
   } catch (error) {
     next(error);

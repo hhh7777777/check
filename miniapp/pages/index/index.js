@@ -12,70 +12,79 @@ Page({
     seatingBgStyle: '',
     routeBgStyle: '',
     liveBgStyle: '',
+    ready: false,
+    globalTextStyle: '',
+    cardTitleStyle: '',
+    cardSubtitleStyle: '',
+    primaryStyle: '',
+    accentStyle: '',
   },
 
   onLoad() {
     const sysInfo = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: sysInfo.statusBarHeight || 20 })
-    this.getActivityInfo()
-    this.loadUiConfig()
+    this.init()
   },
 
   onShow() {},
 
-  async getActivityInfo() {
-    try {
-      const res = await api.getActivity()
-      if (res && res.data) {
-        this.setData({ activity: res.data })
-      }
-    } catch (err) {
-      console.error('获取活动信息失败', err)
+  async init() {
+    const [activityRes, uiRes] = await Promise.all([
+      api.getActivity().catch(() => null),
+      api.getUiConfig().catch(() => null),
+    ])
+
+    const updates = { ready: true }
+
+    if (activityRes && activityRes.data) {
+      updates.activity = activityRes.data
     }
-  },
 
-  async loadUiConfig() {
-    try {
-      const res = await api.getUiConfig()
-      if (res && res.data) {
-        const cfg = res.data
-        const uiConfig = {}
-        const updates = {}
+    if (uiRes && uiRes.data) {
+      const cfg = uiRes.data
+      const uiConfig = {}
 
-        if (cfg.globalBgImageUrl) {
-          uiConfig.globalBgImageUrl = cfg.globalBgImageUrl
-          updates.globalBgStyle = `background-image: url('${cfg.globalBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
+      const bgFields = [
+        ['globalBgImageUrl', 'globalBgStyle'],
+        ['introBgImageUrl', 'introBgStyle'],
+        ['scheduleBgImageUrl', 'scheduleBgStyle'],
+        ['badgeBgImageUrl', 'badgeBgStyle'],
+        ['seatingBgImageUrl', 'seatingBgStyle'],
+        ['routeBgImageUrl', 'routeBgStyle'],
+        ['liveBgImageUrl', 'liveBgStyle'],
+      ]
+      bgFields.forEach(([key, styleKey]) => {
+        if (cfg[key]) {
+          uiConfig[key] = cfg[key]
+          updates[styleKey] = `background-image: url('${cfg[key]}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
         }
-        if (cfg.introBgImageUrl) {
-          uiConfig.introBgImageUrl = cfg.introBgImageUrl
-          updates.introBgStyle = `background-image: url('${cfg.introBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
-        }
-        if (cfg.scheduleBgImageUrl) {
-          uiConfig.scheduleBgImageUrl = cfg.scheduleBgImageUrl
-          updates.scheduleBgStyle = `background-image: url('${cfg.scheduleBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
-        }
-        if (cfg.badgeBgImageUrl) {
-          uiConfig.badgeBgImageUrl = cfg.badgeBgImageUrl
-          updates.badgeBgStyle = `background-image: url('${cfg.badgeBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
-        }
-        if (cfg.seatingBgImageUrl) {
-          uiConfig.seatingBgImageUrl = cfg.seatingBgImageUrl
-          updates.seatingBgStyle = `background-image: url('${cfg.seatingBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
-        }
-        if (cfg.routeBgImageUrl) {
-          uiConfig.routeBgImageUrl = cfg.routeBgImageUrl
-          updates.routeBgStyle = `background-image: url('${cfg.routeBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
-        }
-        if (cfg.liveBgImageUrl) {
-          uiConfig.liveBgImageUrl = cfg.liveBgImageUrl
-          updates.liveBgStyle = `background-image: url('${cfg.liveBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
-        }
+      })
 
-        this.setData({ uiConfig, ...updates })
+      if (cfg.globalTextColor) {
+        uiConfig.globalTextColor = cfg.globalTextColor
+        updates.globalTextStyle = `color: ${cfg.globalTextColor};`
       }
-    } catch (err) {
-      console.error('获取界面配置失败', err)
+      if (cfg.cardTitleColor) {
+        uiConfig.cardTitleColor = cfg.cardTitleColor
+        updates.cardTitleStyle = `color: ${cfg.cardTitleColor};`
+      }
+      if (cfg.cardSubtitleColor) {
+        uiConfig.cardSubtitleColor = cfg.cardSubtitleColor
+        updates.cardSubtitleStyle = `color: ${cfg.cardSubtitleColor};`
+      }
+      if (cfg.primaryColor) {
+        uiConfig.primaryColor = cfg.primaryColor
+        updates.primaryStyle = `color: ${cfg.primaryColor};`
+      }
+      if (cfg.accentColor) {
+        uiConfig.accentColor = cfg.accentColor
+        updates.accentStyle = `color: ${cfg.accentColor};`
+      }
+
+      updates.uiConfig = uiConfig
     }
+
+    this.setData(updates)
   },
 
   goToPage(e) {

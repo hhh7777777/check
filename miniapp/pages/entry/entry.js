@@ -5,13 +5,15 @@ Page({
     statusBarHeight: 0,
     activity: {},
     phone: '',
-    queryReady: false
+    queryReady: false,
+    globalBgStyle: '',
   },
 
   onLoad() {
     const sysInfo = wx.getWindowInfo()
     this.setData({ statusBarHeight: sysInfo.statusBarHeight || 20 })
     this.getActivityInfo()
+    this.loadUiConfig()
   },
 
   async getActivityInfo() {
@@ -22,6 +24,19 @@ Page({
       }
     } catch (err) {
       console.error('获取活动信息失败', err)
+    }
+  },
+
+  async loadUiConfig() {
+    try {
+      const res = await api.getUiConfig()
+      if (res && res.data && res.data.globalBgImageUrl) {
+        this.setData({
+          globalBgStyle: `background-image: url('${res.data.globalBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
+        })
+      }
+    } catch (err) {
+      console.error('获取界面配置失败', err)
     }
   },
 
@@ -43,15 +58,12 @@ Page({
       if (res && res.data) {
         const attendee = Array.isArray(res.data) ? res.data[0] : res.data
         const safeAttendee = {
+          activityId: attendee.activityId || this.data.activity._id || '',
           attendeeCode: attendee.attendeeCode || '',
           name: attendee.name || '',
           organization: attendee.organization || '',
           identityType: attendee.identityType || '',
           seatNo: attendee.seatNo || '',
-          tableNo: attendee.tableNo || '',
-          diningPlace: attendee.diningPlace || '',
-          hotelName: attendee.hotelName || '',
-          roomNo: attendee.roomNo || '',
           remark: attendee.remark || '',
           qrContent: attendee.qrContent || (attendee.attendeeCode ? `PASS:${attendee.attendeeCode}` : '')
         }

@@ -13,10 +13,13 @@
         {{ modelValue ? '重新上传' : '上传PDF' }}
       </el-button>
     </el-upload>
-    <span class="file-name" v-if="url">
-      <el-icon><Document /></el-icon>
-      已上传PDF
-    </span>
+    <template v-if="modelValue">
+      <span class="file-name">
+        <el-icon><Document /></el-icon>
+        已上传PDF
+      </span>
+      <el-button type="danger" size="small" link @click="remove">删除</el-button>
+    </template>
     <span class="file-hint">支持 PDF 格式，最大 20MB</span>
   </div>
 </template>
@@ -67,6 +70,12 @@ const onSuccess = (res) => {
 const onError = () => {
   uploading.value = false
   ElMessage.error('PDF 上传失败')
+}
+
+const remove = () => {
+  emit('update:modelValue', '')
+  emit('update:url', '')
+  ElMessage.success('已删除，请点击保存')
 }
 </script>
 

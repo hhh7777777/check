@@ -11,9 +11,12 @@
   <!-- 状态栏占位 -->
   <view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
 
+  <!-- 加载完成才显示内容 -->
+  <block wx:if="{{ready}}">
+
   <!-- 标题区域 -->
   <view class="header">
-    <view class="header-title">新加坡国立大学广州创新研究院</view>
+    <view class="header-title" style="{{globalTextStyle}}">新加坡国立大学广州创新研究院</view>
   </view>
 
   <!-- 功能卡片区 -->
@@ -22,8 +25,8 @@
     <view class="card card-intro" style="{{introBgStyle}}" bindtap="goToPage" data-url="/pages/intro/intro">
       <view class="card-content">
         <view class="card-text">
-          <view class="card-title" wx:if="{{activity.title}}">{{activity.title}}</view>
-          <view class="card-subtitle">CONFERENCE OVERVIEW</view>
+          <view class="card-title" style="{{cardTitleStyle}}" wx:if="{{activity.title}}">{{activity.title}}</view>
+          <view class="card-subtitle" style="{{cardSubtitleStyle}}">CONFERENCE OVERVIEW</view>
           <view class="card-btn">
             <text class="btn-text">立即查看</text>
             <text class="btn-arrow">›</text>
@@ -53,8 +56,8 @@
         <!-- 会议日程 - 高卡片 -->
         <view class="card card-schedule card-tall" style="{{scheduleBgStyle}}" bindtap="goToPage" data-url="/pages/schedule/schedule">
           <view class="card-text">
-            <view class="card-title">会议日程</view>
-            <view class="card-subtitle">MEETING<br/>SCHEDULE</view>
+            <view class="card-title" style="{{cardTitleStyle}}">会议日程</view>
+            <view class="card-subtitle" style="{{cardSubtitleStyle}}">MEETING<br/>SCHEDULE</view>
           </view>
           <view class="card-icon-area" wx:if="{{!uiConfig.scheduleBgImageUrl}}">
             <view class="icon-3d icon-magnifier">
@@ -66,8 +69,8 @@
         <!-- 会议手册 -->
         <view class="card card-seating" style="{{seatingBgStyle}}" bindtap="goToPage" data-url="/pages/route/route">
           <view class="card-text">
-            <view class="card-title">会议手册</view>
-            <view class="card-subtitle">CONFERENCE<br/>MANUAL</view>
+            <view class="card-title" style="{{cardTitleStyle}}">会议手册</view>
+            <view class="card-subtitle" style="{{cardSubtitleStyle}}">CONFERENCE<br/>MANUAL</view>
           </view>
           <view class="card-icon-area" wx:if="{{!uiConfig.seatingBgImageUrl}}">
             <view class="icon-3d icon-building">
@@ -84,8 +87,8 @@
         <!-- 电子参会证 -->
         <view class="card card-badge" style="{{badgeBgStyle}}" bindtap="goToPage" data-url="/pages/badge/badge">
           <view class="card-text">
-            <view class="card-title">电子参会证</view>
-            <view class="card-subtitle">ELECTRONIC<br/>CONFERENCE<br/>CARD</view>
+            <view class="card-title" style="{{cardTitleStyle}}">电子参会证</view>
+            <view class="card-subtitle" style="{{cardSubtitleStyle}}">ELECTRONIC<br/>CONFERENCE<br/>CARD</view>
           </view>
           <view class="card-icon-area" wx:if="{{!uiConfig.badgeBgImageUrl}}">
             <view class="icon-3d icon-person">
@@ -97,8 +100,8 @@
         <!-- 参会路线 -->
         <view class="card card-route" style="{{routeBgStyle}}" bindtap="goToPage" data-url="/pages/route/route">
           <view class="card-text">
-            <view class="card-title">参会路线</view>
-            <view class="card-subtitle">CONFERENCE<br/>ROUTE</view>
+            <view class="card-title" style="{{cardTitleStyle}}">参会路线</view>
+            <view class="card-subtitle" style="{{cardSubtitleStyle}}">CONFERENCE<br/>ROUTE</view>
           </view>
           <view class="card-icon-area" wx:if="{{!uiConfig.routeBgImageUrl}}">
             <view class="icon-3d icon-map">
@@ -110,8 +113,8 @@
         <!-- 图文直播 -->
         <view class="card card-live" style="{{liveBgStyle}}" bindtap="goToPage" data-url="/pages/live/live">
           <view class="card-text">
-            <view class="card-title">图文直播</view>
-            <view class="card-subtitle">THE DIAGRAM<br/>TEXT IS LIVE</view>
+            <view class="card-title" style="{{cardTitleStyle}}">图文直播</view>
+            <view class="card-subtitle" style="{{cardSubtitleStyle}}">THE DIAGRAM<br/>TEXT IS LIVE</view>
           </view>
           <view class="card-icon-area" wx:if="{{!uiConfig.liveBgImageUrl}}">
             <view class="icon-3d icon-camera">
@@ -124,8 +127,10 @@
     </view>
   </view>
 
+  </block>
+
   <!-- 底部 -->
-  <view class="footer">
+  <view class="footer" wx:if="{{ready}}">
     <view class="footer-line"></view>
     <view class="footer-text">活动主办方提供技术支持</view>
     <view class="footer-line"></view>

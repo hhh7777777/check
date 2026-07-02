@@ -14,7 +14,7 @@
             <p style="margin: 0 0 4px 0; font-weight: 600;">图片尺寸规格</p>
             <p style="margin: 0; font-size: 12px; color: #667085;">
               全局背景: 750×1334px | 会议介绍: 694×260px | 会议日程: 380×300px |
-              座位/酒店: 380×200px | 电子参会证: 284×200px | 参会路线: 284×200px | 图文直播: 284×200px
+              会议手册: 380×200px | 电子参会证: 284×200px | 参会路线: 284×200px | 图文直播: 284×200px
             </p>
           </div>
         </template>
@@ -69,6 +69,15 @@
           />
         </el-form-item>
 
+        <el-form-item label="参会路线">
+          <ImageUpload
+            v-model="form.routeBgImageFileID"
+            v-model:url="form.routeBgImageUrl"
+            folder="module-bgs"
+            tip="建议尺寸 284×200px"
+          />
+        </el-form-item>
+
         <el-form-item label="图文直播">
           <ImageUpload
             v-model="form.liveBgImageFileID"
@@ -84,6 +93,38 @@
             v-model="form.routePdfFileID"
             v-model:url="form.routePdfUrl"
           />
+        </el-form-item>
+
+        <el-divider content-position="left">文字颜色配置</el-divider>
+        <el-alert type="warning" :closable="false" style="margin-bottom: 16px;">
+          <template #title>
+            <span style="font-size: 12px;">留空则使用默认颜色。修改后需点击保存生效。</span>
+          </template>
+        </el-alert>
+
+        <el-form-item label="全局文字颜色">
+          <el-color-picker v-model="form.globalTextColor" show-alpha />
+          <span class="color-hint">默认: #ffffff（白色）</span>
+        </el-form-item>
+
+        <el-form-item label="卡片标题颜色">
+          <el-color-picker v-model="form.cardTitleColor" show-alpha />
+          <span class="color-hint">默认: #ffffff（白色）</span>
+        </el-form-item>
+
+        <el-form-item label="卡片副标题颜色">
+          <el-color-picker v-model="form.cardSubtitleColor" show-alpha />
+          <span class="color-hint">默认: rgba(255,255,255,0.6)</span>
+        </el-form-item>
+
+        <el-form-item label="主色调">
+          <el-color-picker v-model="form.primaryColor" show-alpha />
+          <span class="color-hint">默认: #3a8aee（蓝色）</span>
+        </el-form-item>
+
+        <el-form-item label="强调色">
+          <el-color-picker v-model="form.accentColor" show-alpha />
+          <span class="color-hint">默认: #f59e0b（琥珀色）</span>
         </el-form-item>
       </el-form>
     </el-card>
@@ -116,6 +157,11 @@ const form = reactive({
   liveBgImageUrl: '',
   routePdfFileID: '',
   routePdfUrl: '',
+  globalTextColor: '',
+  cardTitleColor: '',
+  cardSubtitleColor: '',
+  primaryColor: '',
+  accentColor: '',
 })
 
 const load = async () => {
@@ -157,5 +203,10 @@ load()
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.color-hint {
+  margin-left: 12px;
+  font-size: 12px;
+  color: #667085;
 }
 </style>

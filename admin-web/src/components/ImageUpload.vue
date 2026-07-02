@@ -14,13 +14,16 @@
         {{ modelValue ? '重新上传' : '上传图片' }}
       </el-button>
     </el-upload>
-    <el-image
-      v-if="url"
-      class="image-preview"
-      :src="url"
-      :preview-src-list="[url]"
-      fit="cover"
-    />
+    <template v-if="modelValue">
+      <el-image
+        v-if="url"
+        class="image-preview"
+        :src="url"
+        :preview-src-list="[url]"
+        fit="cover"
+      />
+      <el-button type="danger" size="small" link @click="remove">删除</el-button>
+    </template>
     <span class="file-hint" v-if="tip">{{ tip }}</span>
   </div>
 </template>
@@ -73,6 +76,12 @@ const onSuccess = (res) => {
 const onError = () => {
   uploading.value = false
   ElMessage.error('图片上传失败')
+}
+
+const remove = () => {
+  emit('update:modelValue', '')
+  emit('update:url', '')
+  ElMessage.success('已删除，请点击保存')
 }
 </script>
 

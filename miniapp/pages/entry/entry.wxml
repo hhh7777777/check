@@ -1,5 +1,5 @@
-<view class="page">
-  <view class="bg-decor">
+<view class="page" style="{{globalBgStyle}}">
+  <view class="bg-decor" wx:if="{{!globalBgStyle}}">
     <view class="bg-circle bg-circle-1"></view>
     <view class="bg-circle bg-circle-2"></view>
     <view class="bg-streak bg-streak-1"></view>
