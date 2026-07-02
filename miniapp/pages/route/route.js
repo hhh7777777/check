@@ -4,7 +4,8 @@ Page({
   data: {
     activity: {},
     loaded: false,
-    statusBarHeight: 0
+    statusBarHeight: 0,
+    hasPdf: false,
   },
 
   onLoad() {
@@ -17,7 +18,12 @@ Page({
     try {
       const res = await api.getActivity()
       if (res && res.data) {
-        this.setData({ activity: res.data, loaded: true })
+        const activity = res.data
+        this.setData({
+          activity,
+          loaded: true,
+          hasPdf: !!(activity.routePdfUrl || activity.routePdfFileID)
+        })
       } else {
         this.setData({ loaded: true })
       }
@@ -27,9 +33,41 @@ Page({
     }
   },
 
-  /**
-   * 使用微信内置地图导航（免费）
-   */
+  openPdf() {
+    const { activity } = this.data
+    const pdfUrl = activity.routePdfUrl
+    if (!pdfUrl) {
+      wx.showToast({ title: '暂无路线PDF', icon: 'none' })
+      return
+    }
+    wx.showLoading({ title: '下载中...' })
+    wx.downloadFile({
+      url: pdfUrl,
+      success(res) {
+        wx.hideLoading()
+        if (res.statusCode === 200) {
+          wx.openDocument({
+            filePath: res.tempFilePath,
+            fileType: 'pdf',
+            showMenu: true,
+            success() {},
+            fail(err) {
+              console.error('打开PDF失败', err)
+              wx.showToast({ title: '打开PDF失败', icon: 'none' })
+            }
+          })
+        } else {
+          wx.showToast({ title: 'PDF下载失败', icon: 'none' })
+        }
+      },
+      fail(err) {
+        wx.hideLoading()
+        console.error('下载PDF失败', err)
+        wx.showToast({ title: 'PDF下载失败', icon: 'none' })
+      }
+    })
+  },
+
   openNavigation() {
     const { activity } = this.data
     if (activity.latitude && activity.longitude) {

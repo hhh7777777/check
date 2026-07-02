@@ -161,6 +161,56 @@
   line-height: 1.6;
 }
 
+/* 并发议程 */
+.timeline-item-concurrent {
+  align-items: flex-start;
+}
+
+.concurrent-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 12rpx rgba(245, 158, 11, 0.5);
+}
+
+.concurrent-group {
+  flex: 1;
+  margin-left: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.concurrent-header {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.concurrent-time {
+  font-size: 24rpx;
+  color: #f59e0b;
+  font-weight: 500;
+}
+
+.concurrent-badge {
+  font-size: 20rpx;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  padding: 4rpx 12rpx;
+  border-radius: 20rpx;
+  border: 1rpx solid rgba(245, 158, 11, 0.3);
+}
+
+.concurrent-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.concurrent-card {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1rpx solid rgba(245, 158, 11, 0.2);
+  margin-bottom: 0;
+}
+
 /* 返回首页按钮 */
 .back-home {
   display: flex;

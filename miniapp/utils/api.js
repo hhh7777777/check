@@ -67,5 +67,6 @@ module.exports = {
   queryAttendee: (data) => request('/api/attendee/query', 'POST', {
     phone: data.phone
   }),
-  getLiveImages: () => request('/api/live-images')
+  getLiveImages: () => request('/api/live-images'),
+  getUiConfig: () => request('/api/miniapp/uiConfig'),
 }

@@ -12,6 +12,7 @@
         <el-menu-item index="/schedule">会议日程</el-menu-item>
         <el-menu-item index="/attendee">参会人员</el-menu-item>
         <el-menu-item index="/live">图文直播</el-menu-item>
+        <el-menu-item index="/settings">界面配置</el-menu-item>
         <el-menu-item v-if="adminInfo.role === 'superadmin'" index="/users">账号管理</el-menu-item>
       </el-menu>
     </el-aside>

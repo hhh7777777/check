@@ -25,6 +25,7 @@ export const updateSchedule = (id, data) => request.put(`/admin/schedules/${id}`
 export const deleteSchedule = (id) => request.delete(`/admin/schedules/${id}`)
 
 export const getAttendees = (params) => request.get('/admin/attendees', { params })
+export const createAttendee = (data) => request.post('/admin/attendees', data)
 export const updateAttendee = (id, data) => request.put(`/admin/attendees/${id}`, data)
 export const deleteAttendee = (id) => request.delete(`/admin/attendees/${id}`)
 export const exportAttendees = (params) =>
@@ -33,3 +34,5 @@ export const exportAttendees = (params) =>
 export const getLiveImages = () => request.get('/admin/live-images')
 export const updateLiveImage = (id, data) => request.put(`/admin/live-images/${id}`, data)
 export const deleteLiveImage = (id) => request.delete(`/admin/live-images/${id}`)
+
+export const getMiniappUiConfig = () => request.get('/miniapp/uiConfig')

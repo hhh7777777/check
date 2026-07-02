@@ -1,6 +1,6 @@
-<view class="page">
-  <!-- 背景装饰 -->
-  <view class="bg-decor">
+<view class="page" style="{{globalBgStyle}}">
+  <!-- 背景装饰 - 无自定义背景时显示默认渐变 -->
+  <view class="bg-decor" wx:if="{{!uiConfig.globalBgImageUrl}}">
     <view class="bg-circle bg-circle-1"></view>
     <view class="bg-circle bg-circle-2"></view>
     <view class="bg-circle bg-circle-3"></view>
@@ -13,13 +13,13 @@
 
   <!-- 标题区域 -->
   <view class="header">
-    <view class="header-title">新加坡国立大学广州研究院</view>
+    <view class="header-title">新加坡国立大学广州创新研究院</view>
   </view>
 
   <!-- 功能卡片区 -->
   <view class="card-area">
     <!-- 会议介绍 - 全宽大卡片 -->
-    <view class="card card-intro" bindtap="goToPage" data-url="/pages/intro/intro">
+    <view class="card card-intro" style="{{introBgStyle}}" bindtap="goToPage" data-url="/pages/intro/intro">
       <view class="card-content">
         <view class="card-text">
           <view class="card-title" wx:if="{{activity.title}}">{{activity.title}}</view>
@@ -29,7 +29,7 @@
             <text class="btn-arrow">›</text>
           </view>
         </view>
-        <view class="card-icon-area">
+        <view class="card-icon-area" wx:if="{{!uiConfig.introBgImageUrl}}">
           <view class="icon-3d icon-chart">
             <view class="chart-bar" style="height: 60%;"></view>
             <view class="chart-bar" style="height: 80%;"></view>
@@ -51,12 +51,12 @@
       <!-- 左列 -->
       <view class="card-col card-col-left">
         <!-- 会议日程 - 高卡片 -->
-        <view class="card card-schedule card-tall" bindtap="goToPage" data-url="/pages/schedule/schedule">
+        <view class="card card-schedule card-tall" style="{{scheduleBgStyle}}" bindtap="goToPage" data-url="/pages/schedule/schedule">
           <view class="card-text">
             <view class="card-title">会议日程</view>
             <view class="card-subtitle">MEETING<br/>SCHEDULE</view>
           </view>
-          <view class="card-icon-area">
+          <view class="card-icon-area" wx:if="{{!uiConfig.scheduleBgImageUrl}}">
             <view class="icon-3d icon-magnifier">
               <view class="mag-glass"></view>
               <view class="mag-handle"></view>
@@ -64,12 +64,12 @@
           </view>
         </view>
         <!-- 座位/酒店 -->
-        <view class="card card-seating" bindtap="goToPage" data-url="/pages/seating/seating">
+        <view class="card card-seating" style="{{seatingBgStyle}}" bindtap="goToPage" data-url="/pages/seating/seating">
           <view class="card-text">
             <view class="card-title">座位/酒店</view>
             <view class="card-subtitle">SEATING<br/>HOTEL</view>
           </view>
-          <view class="card-icon-area">
+          <view class="card-icon-area" wx:if="{{!uiConfig.seatingBgImageUrl}}">
             <view class="icon-3d icon-building">
               <view class="building-floor"></view>
               <view class="building-floor"></view>
@@ -82,12 +82,12 @@
       <!-- 右列 -->
       <view class="card-col card-col-right">
         <!-- 电子参会证 -->
-        <view class="card card-badge" bindtap="goToPage" data-url="/pages/badge/badge">
+        <view class="card card-badge" style="{{badgeBgStyle}}" bindtap="goToPage" data-url="/pages/badge/badge">
           <view class="card-text">
             <view class="card-title">电子参会证</view>
             <view class="card-subtitle">ELECTRONIC<br/>CONFERENCE<br/>CARD</view>
           </view>
-          <view class="card-icon-area">
+          <view class="card-icon-area" wx:if="{{!uiConfig.badgeBgImageUrl}}">
             <view class="icon-3d icon-person">
               <view class="person-head"></view>
               <view class="person-body"></view>
@@ -95,12 +95,12 @@
           </view>
         </view>
         <!-- 参会路线 -->
-        <view class="card card-route" bindtap="goToPage" data-url="/pages/route/route">
+        <view class="card card-route" style="{{routeBgStyle}}" bindtap="goToPage" data-url="/pages/route/route">
           <view class="card-text">
             <view class="card-title">参会路线</view>
             <view class="card-subtitle">CONFERENCE<br/>ROUTE</view>
           </view>
-          <view class="card-icon-area">
+          <view class="card-icon-area" wx:if="{{!uiConfig.routeBgImageUrl}}">
             <view class="icon-3d icon-map">
               <view class="map-pin"></view>
               <view class="map-circle"></view>
@@ -108,12 +108,12 @@
           </view>
         </view>
         <!-- 图文直播 -->
-        <view class="card card-live" bindtap="goToPage" data-url="/pages/live/live">
+        <view class="card card-live" style="{{liveBgStyle}}" bindtap="goToPage" data-url="/pages/live/live">
           <view class="card-text">
             <view class="card-title">图文直播</view>
             <view class="card-subtitle">THE DIAGRAM<br/>TEXT IS LIVE</view>
           </view>
-          <view class="card-icon-area">
+          <view class="card-icon-area" wx:if="{{!uiConfig.liveBgImageUrl}}">
             <view class="icon-3d icon-camera">
               <view class="cam-body"></view>
               <view class="cam-lens"></view>

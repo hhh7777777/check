@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const fetch = require('node-fetch');
 const multer = require('multer');
 const path = require('path');
+const FormData = require('form-data');
 const cloudbase = require('@cloudbase/node-sdk');
 
 const CONFIG = {
@@ -15,10 +16,9 @@ const CONFIG = {
   envId: process.env.WX_ENV_ID || '',
   jwtSecret: process.env.JWT_SECRET || '',
   port: Number(process.env.PORT || 80),
-  corsOrigins: (process.env.CORS_ORIGINS || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean),
+  corsOrigins: process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((item) => item.trim()).filter(Boolean)
+    : ['*'],
   defaultAdminUsername: process.env.ADMIN_DEFAULT_USERNAME || 'admin',
   defaultAdminPassword: process.env.ADMIN_DEFAULT_PASSWORD || 'admin123',
 };
@@ -59,6 +59,11 @@ const imageUpload = multer({
 const excelUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
+});
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, file.mimetype === 'application/pdf' || file.originalname.endsWith('.pdf')),
 });
 
 let accessTokenCache = { token: '', expiresAt: 0 };
@@ -255,6 +260,14 @@ function normalizeActivity(item) {
     coverImageFileID: item.coverImageFileID || item.coverImageFileId || item.coverFileId || '',
     contactPhone: item.contactPhone || item.contact_phone || '',
     contactPerson: sz(item.contactPerson || item.contact_person),
+    globalBgImageFileID: item.globalBgImageFileID || '',
+    introBgImageFileID: item.introBgImageFileID || '',
+    scheduleBgImageFileID: item.scheduleBgImageFileID || '',
+    badgeBgImageFileID: item.badgeBgImageFileID || '',
+    seatingBgImageFileID: item.seatingBgImageFileID || '',
+    routeBgImageFileID: item.routeBgImageFileID || '',
+    liveBgImageFileID: item.liveBgImageFileID || '',
+    routePdfFileID: item.routePdfFileID || '',
     createdAt: item.createdAt || item.created_at || '',
     updatedAt: item.updatedAt || item.updated_at || '',
     isCurrent: item.isCurrent === true || item.isCurrent === 1 || item.is_current === 1,
@@ -445,8 +458,57 @@ async function getAdminActivity(req) {
 
 async function getTempUrl(fileId) {
   if (!fileId) return '';
-  const result = await cloud.getTempFileURL({ fileList: [fileId] });
-  return result.fileList && result.fileList[0] ? result.fileList[0].tempFileURL : '';
+  const token = await getAccessToken();
+  const response = await fetch(`https://api.weixin.qq.com/tcb/batchdownloadfile?access_token=${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      env: CONFIG.envId,
+      file_list: [{ fileid: fileId, max_age: 7200 }],
+    }),
+  });
+  const result = await response.json();
+  if (result.errcode && result.errcode !== 0) {
+    throw new Error(`获取云存储访问地址失败: ${result.errmsg} (${result.errcode})`);
+  }
+  const item = result.file_list && result.file_list[0];
+  return item ? item.download_url || item.tempFileURL || '' : '';
+}
+
+async function uploadCloudFile(cloudPath, fileContent, contentType = 'application/octet-stream') {
+  const token = await getAccessToken();
+  const metadataResponse = await fetch(`https://api.weixin.qq.com/tcb/uploadfile?access_token=${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ env: CONFIG.envId, path: cloudPath }),
+  });
+  const upload = await metadataResponse.json();
+  if (upload.errcode && upload.errcode !== 0) {
+    throw new Error(`获取云存储上传信息失败: ${upload.errmsg} (${upload.errcode})`);
+  }
+  if (!upload.url || !upload.file_id || !upload.authorization || !upload.token || !upload.cos_file_id) {
+    throw new Error('获取云存储上传信息失败：返回数据不完整');
+  }
+  const form = new FormData();
+  form.append('key', cloudPath);
+  form.append('Signature', upload.authorization);
+  form.append('x-cos-security-token', upload.token);
+  form.append('x-cos-meta-fileid', upload.cos_file_id);
+  form.append('file', fileContent, {
+    filename: path.basename(cloudPath),
+    contentType,
+    knownLength: fileContent.length,
+  });
+  const response = await fetch(upload.url, {
+    method: 'POST',
+    headers: form.getHeaders(),
+    body: form,
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    throw new Error(`云存储上传失败 (${response.status}): ${detail}`);
+  }
+  return { fileID: upload.file_id };
 }
 
 async function enrichActivity(activity) {
@@ -457,15 +519,25 @@ async function enrichActivity(activity) {
   if (next.coverImageFileID) {
     next.coverImageUrl = await getTempUrl(next.coverImageFileID);
   }
+  const bgFields = ['globalBgImageFileID', 'introBgImageFileID', 'scheduleBgImageFileID', 'badgeBgImageFileID', 'seatingBgImageFileID', 'routeBgImageFileID', 'liveBgImageFileID'];
+  for (const field of bgFields) {
+    if (next[field]) {
+      next[field.replace('FileID', 'Url')] = await getTempUrl(next[field]);
+    }
+  }
+  if (next.routePdfFileID) {
+    next.routePdfUrl = await getTempUrl(next.routePdfFileID);
+  }
   return next;
 }
 
 async function enrichImages(images) {
-  const fileList = images.map((item) => item.fileID).filter(Boolean);
-  if (fileList.length === 0) return images;
-  const result = await cloud.getTempFileURL({ fileList });
-  const urlMap = new Map((result.fileList || []).map((item) => [item.fileID, item.tempFileURL]));
-  return images.map((item) => ({ ...item, imageUrl: item.imageUrl || urlMap.get(item.fileID) || '' }));
+  return Promise.all(
+    images.map(async (item) => ({
+      ...item,
+      imageUrl: item.imageUrl || (item.fileID ? await getTempUrl(item.fileID) : ''),
+    }))
+  );
 }
 
 async function getSchedulesByActivity(activityId) {
@@ -714,7 +786,7 @@ function requireFields(body, fields) {
 }
 
 async function updateActivityRecord(activityId, body) {
-  const allowed = ['title', 'startTime', 'endTime', 'location', 'organizer', 'coOrganizer', 'description', 'trafficInfo', 'mapImageFileID', 'coverImageFileID', 'contactPhone', 'contactPerson'];
+  const allowed = ['title', 'startTime', 'endTime', 'location', 'organizer', 'coOrganizer', 'description', 'trafficInfo', 'mapImageFileID', 'coverImageFileID', 'contactPhone', 'contactPerson', 'globalBgImageFileID', 'introBgImageFileID', 'scheduleBgImageFileID', 'badgeBgImageFileID', 'seatingBgImageFileID', 'routeBgImageFileID', 'liveBgImageFileID', 'routePdfFileID'];
   const payload = { updatedAt: nowIso() };
   for (const key of allowed) {
     if (body[key] !== undefined) {
@@ -1067,6 +1139,8 @@ app.get('/api/admin/dashboard', authMiddleware, async (req, res, next) => {
       res.json({
         activity: null,
         attendeeCount: 0,
+        checkedInCount: 0,
+        notCheckedInCount: 0,
         liveImageCount: 0,
         updatedAt: '',
       });
@@ -1077,6 +1151,8 @@ app.get('/api/admin/dashboard', authMiddleware, async (req, res, next) => {
     res.json({
       activity: await enrichActivity(activity),
       attendeeCount: attendees.length,
+      checkedInCount: attendees.filter((item) => item.checkedIn).length,
+      notCheckedInCount: attendees.filter((item) => !item.checkedIn).length,
       liveImageCount: images.length,
       updatedAt: activity.updatedAt,
     });
@@ -1304,11 +1380,17 @@ app.get('/api/admin/attendees', authMiddleware, async (req, res, next) => {
   try {
     const activity = await getAdminActivity(req);
     const keyword = normalizeText(req.query.keyword || '');
+    const checkInStatus = normalizeText(req.query.checkInStatus || 'all');
     let attendees = await getAttendeesByActivity(activity._id);
     if (keyword) {
       attendees = attendees.filter((item) =>
         [item.name, item.phone, item.organization, item.attendeeCode].some((field) => field.includes(keyword))
       );
+    }
+    if (checkInStatus === 'checkedIn') {
+      attendees = attendees.filter((item) => item.checkedIn);
+    } else if (checkInStatus === 'notCheckedIn') {
+      attendees = attendees.filter((item) => !item.checkedIn);
     }
     const page = Number(req.query.page || 1);
     const pageSize = Number(req.query.pageSize || 10);
@@ -1318,6 +1400,50 @@ app.get('/api/admin/attendees', authMiddleware, async (req, res, next) => {
       page,
       pageSize,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/attendees', authMiddleware, async (req, res, next) => {
+  try {
+    const activity = await getAdminActivity(req);
+    const { name, phone, organization, identityType, seatNo, tableNo, diningPlace, hotelName, roomNo, remark } = req.body || {};
+    if (!name || !phone) {
+      res.status(400).json({ error: '姓名和手机号不能为空' });
+      return;
+    }
+    const normalizedPhone = normalizePhone(phone);
+    if (!validatePhone(normalizedPhone)) {
+      res.status(400).json({ error: '手机号格式不正确' });
+      return;
+    }
+    const current = await getAttendeesByActivity(activity._id);
+    if (current.some((item) => item.name === normalizeText(name) && item.phone === normalizedPhone)) {
+      res.status(400).json({ error: '该人员已存在于当前活动' });
+      return;
+    }
+    const attendeeCode = await nextAttendeeCode(activity._id);
+    await dbAdd(COLLECTIONS.attendees, {
+      activityId: activity._id,
+      attendeeCode,
+      name: normalizeText(name),
+      phone: normalizedPhone,
+      phoneLast4: normalizedPhone.slice(-4),
+      organization: normalizeText(organization || ''),
+      identityType: normalizeText(identityType || ''),
+      seatNo: normalizeText(seatNo || ''),
+      tableNo: normalizeText(tableNo || ''),
+      diningPlace: normalizeText(diningPlace || ''),
+      hotelName: normalizeText(hotelName || ''),
+      roomNo: normalizeText(roomNo || ''),
+      remark: normalizeText(remark || ''),
+      checkedIn: false,
+      checkedInAt: '',
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    });
+    res.json({ success: true, attendeeCode });
   } catch (error) {
     next(error);
   }
@@ -1383,7 +1509,20 @@ app.delete('/api/admin/attendees/:id', authMiddleware, async (req, res, next) =>
 app.get('/api/admin/attendees/export', authMiddleware, async (req, res, next) => {
   try {
     const activity = await getAdminActivity(req);
-    const rows = (await getAttendeesByActivity(activity._id)).map((item) => ({
+    const keyword = normalizeText(req.query.keyword || '');
+    const checkInStatus = normalizeText(req.query.checkInStatus || 'all');
+    let attendees = await getAttendeesByActivity(activity._id);
+    if (keyword) {
+      attendees = attendees.filter((item) =>
+        [item.name, item.phone, item.organization, item.attendeeCode].some((field) => field.includes(keyword))
+      );
+    }
+    if (checkInStatus === 'checkedIn') {
+      attendees = attendees.filter((item) => item.checkedIn);
+    } else if (checkInStatus === 'notCheckedIn') {
+      attendees = attendees.filter((item) => !item.checkedIn);
+    }
+    const rows = attendees.map((item) => ({
       姓名: item.name,
       手机号: item.phone,
       单位: item.organization,
@@ -1395,13 +1534,16 @@ app.get('/api/admin/attendees/export', authMiddleware, async (req, res, next) =>
       房间号: item.roomNo,
       备注: item.remark,
       参会码: item.attendeeCode,
+      签到状态: item.checkedIn ? '已签到' : '未签到',
+      签到时间: item.checkedInAt || '',
     }));
     const sheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, sheet, '参会人员');
+    XLSX.utils.book_append_sheet(workbook, sheet, checkInStatus === 'checkedIn' ? '已签到人员' : '参会人员');
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('attendees.xlsx')}`);
+    const filename = checkInStatus === 'checkedIn' ? 'checked-in-attendees.xlsx' : 'attendees.xlsx';
+    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
     res.send(buffer);
   } catch (error) {
     next(error);
@@ -1417,7 +1559,7 @@ app.post('/api/admin/live-images', authMiddleware, imageUpload.single('file'), a
     }
     const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
     const cloudPath = `event/live/${activity._id}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
-    const uploaded = await cloud.uploadFile({ cloudPath, fileContent: req.file.buffer });
+    const uploaded = await uploadCloudFile(cloudPath, req.file.buffer, req.file.mimetype);
     await dbAdd(COLLECTIONS.liveImages, {
       activityId: activity._id,
       title: normalizeText(req.body.title),
@@ -1490,11 +1632,27 @@ app.post('/api/admin/upload', authMiddleware, imageUpload.single('file'), async 
       res.status(400).json({ error: '请上传图片' });
       return;
     }
-    const folder = normalizeText(req.body.folder) || 'activity';
+    const requestedFolder = normalizeText(req.body.folder) || 'activity';
+    const folder = ['maps', 'covers', 'activity', 'miniapp-bg', 'module-bgs'].includes(requestedFolder) ? requestedFolder : 'activity';
     const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
     const cloudPath = `event/${folder}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
-    const uploaded = await cloud.uploadFile({ cloudPath, fileContent: req.file.buffer });
+    const uploaded = await uploadCloudFile(cloudPath, req.file.buffer, req.file.mimetype);
     res.json({ fileID: uploaded.fileID, imageUrl: await getTempUrl(uploaded.fileID) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/upload-pdf', authMiddleware, pdfUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: '请上传PDF文件' });
+      return;
+    }
+    const ext = path.extname(req.file.originalname).toLowerCase() || '.pdf';
+    const cloudPath = `event/route-pdf/${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
+    const uploaded = await uploadCloudFile(cloudPath, req.file.buffer, req.file.mimetype);
+    res.json({ fileID: uploaded.fileID, pdfUrl: await getTempUrl(uploaded.fileID) });
   } catch (error) {
     next(error);
   }
@@ -1572,6 +1730,28 @@ app.get('/api/miniapp/getLiveImages', async (req, res, next) => {
     next(error);
   }
 });
+app.get('/api/miniapp/uiConfig', async (req, res, next) => {
+  try {
+    const activity = await getCurrentActivity();
+    if (!activity) {
+      res.json({});
+      return;
+    }
+    const enriched = await enrichActivity(activity);
+    res.json({
+      globalBgImageUrl: enriched.globalBgImageUrl || '',
+      introBgImageUrl: enriched.introBgImageUrl || '',
+      scheduleBgImageUrl: enriched.scheduleBgImageUrl || '',
+      badgeBgImageUrl: enriched.badgeBgImageUrl || '',
+      seatingBgImageUrl: enriched.seatingBgImageUrl || '',
+      routeBgImageUrl: enriched.routeBgImageUrl || '',
+      liveBgImageUrl: enriched.liveBgImageUrl || '',
+      routePdfUrl: enriched.routePdfUrl || '',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 app.post('/api/miniapp/queryAttendee', publicRateLimit, async (req, res, next) => {
   try {
     req.body = { phone: req.body.phone };
@@ -1611,9 +1791,15 @@ app.post('/api/h5/queryAttendee', publicRateLimit, async (req, res, next) => {
   }
 });
 
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   const statusCode = error.statusCode || 500;
   console.error(error);
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Activity-Id');
+  }
   res.status(statusCode).json({ error: error.message || '服务异常' });
 });
 

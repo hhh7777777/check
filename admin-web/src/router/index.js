@@ -23,6 +23,7 @@ const routes = [
       { path: 'schedule', component: () => import('../views/ScheduleManage.vue'), meta: { title: '会议日程', role: 'admin' } },
       { path: 'attendee', component: () => import('../views/AttendeeManage.vue'), meta: { title: '参会人员', role: 'admin' } },
       { path: 'live', component: () => import('../views/LiveImageManage.vue'), meta: { title: '图文直播', role: 'admin' } },
+      { path: 'settings', component: () => import('../views/Settings.vue'), meta: { title: '界面配置', role: 'admin' } },
       { path: 'users', component: () => import('../views/UserManage.vue'), meta: { title: '账号管理', role: 'superadmin' } }
     ]
   }

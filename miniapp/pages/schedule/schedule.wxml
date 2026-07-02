@@ -26,23 +26,56 @@
       <view class="date-header">
         <text class="date-text">{{item.date}}</text>
       </view>
-      <view class="timeline-item" wx:for="{{item.list}}" wx:for-item="schedule" wx:key="id">
-        <view class="timeline-left">
-          <view class="timeline-dot"></view>
-          <view class="timeline-line"></view>
+
+      <!-- 每一行 -->
+      <view class="timeline-row" wx:for="{{item.rows}}" wx:for-item="row" wx:key="index">
+        <!-- 单议程 -->
+        <view class="timeline-item" wx:if="{{!row.concurrent}}">
+          <view class="timeline-left">
+            <view class="timeline-dot"></view>
+            <view class="timeline-line"></view>
+          </view>
+          <view class="timeline-content">
+            <view class="time-range">{{row.items[0].startTime}} - {{row.items[0].endTime}}</view>
+            <view class="schedule-title">{{row.items[0].title}}</view>
+            <view class="schedule-info" wx:if="{{row.items[0].location}}">
+              <text class="info-icon">地点</text>
+              <text>{{row.items[0].location}}</text>
+            </view>
+            <view class="schedule-info" wx:if="{{row.items[0].speaker}}">
+              <text class="info-icon">主讲</text>
+              <text>{{row.items[0].speaker}}</text>
+            </view>
+            <view class="schedule-remark" wx:if="{{row.items[0].remark}}">{{row.items[0].remark}}</view>
+          </view>
         </view>
-        <view class="timeline-content">
-          <view class="time-range">{{schedule.startTime}} - {{schedule.endTime}}</view>
-          <view class="schedule-title">{{schedule.title}}</view>
-          <view class="schedule-info" wx:if="{{schedule.location}}">
-            <text class="info-icon">地点</text>
-            <text>{{schedule.location}}</text>
+
+        <!-- 多议程并发 -->
+        <view class="timeline-item timeline-item-concurrent" wx:if="{{row.concurrent}}">
+          <view class="timeline-left">
+            <view class="timeline-dot concurrent-dot"></view>
+            <view class="timeline-line"></view>
           </view>
-          <view class="schedule-info" wx:if="{{schedule.speaker}}">
-            <text class="info-icon">主讲</text>
-            <text>{{schedule.speaker}}</text>
+          <view class="concurrent-group">
+            <view class="concurrent-header">
+              <text class="concurrent-time">{{row.items[0].startTime}} - {{row.items[0].endTime}}</text>
+              <text class="concurrent-badge">{{row.items.length}}个并行议程</text>
+            </view>
+            <view class="concurrent-grid">
+              <view class="timeline-content concurrent-card" wx:for="{{row.items}}" wx:for-item="schedule" wx:key="id">
+                <view class="schedule-title">{{schedule.title}}</view>
+                <view class="schedule-info" wx:if="{{schedule.location}}">
+                  <text class="info-icon">地点</text>
+                  <text>{{schedule.location}}</text>
+                </view>
+                <view class="schedule-info" wx:if="{{schedule.speaker}}">
+                  <text class="info-icon">主讲</text>
+                  <text>{{schedule.speaker}}</text>
+                </view>
+                <view class="schedule-remark" wx:if="{{schedule.remark}}">{{schedule.remark}}</view>
+              </view>
+            </view>
           </view>
-          <view class="schedule-remark" wx:if="{{schedule.remark}}">{{schedule.remark}}</view>
         </view>
       </view>
     </view>

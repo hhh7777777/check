@@ -29,16 +29,31 @@
     </view>
   </view>
 
+  <!-- 参会路线PDF -->
+  <view class="content-card" wx:if="{{hasPdf}}">
+    <view class="section-title">
+      <text>参会路线图</text>
+    </view>
+    <view class="pdf-btn" bindtap="openPdf">
+      <view class="pdf-icon">PDF</view>
+      <view class="pdf-info">
+        <text class="pdf-label">点击查看路线图</text>
+        <text class="pdf-desc">PDF文件，可缩放查看</text>
+      </view>
+      <text class="pdf-arrow">›</text>
+    </view>
+  </view>
+
   <!-- 交通说明 -->
-  <view class="content-card" wx:if="{{activity.traffic_info}}">
+  <view class="content-card" wx:if="{{activity.trafficInfo}}">
     <view class="section-title">
       <text>交通说明</text>
     </view>
-    <view class="transport-text">{{activity.traffic_info}}</view>
+    <view class="transport-text">{{activity.trafficInfo}}</view>
   </view>
 
   <!-- 无数据提示 -->
-  <view class="empty-tip" wx:if="{{!activity.location && loaded}}">
+  <view class="empty-tip" wx:if="{{!activity.location && !hasPdf && loaded}}">
     <text>暂无路线信息</text>
   </view>
 

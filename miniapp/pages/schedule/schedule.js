@@ -17,7 +17,7 @@ Page({
     try {
       const res = await api.getSchedules()
       if (res && res.data && res.data.length > 0) {
-        const grouped = this.groupByDate(res.data)
+        const grouped = this.groupByDateWithConcurrency(res.data)
         this.setData({ groupedSchedules: grouped, loading: false })
       } else {
         this.setData({ loading: false })
@@ -28,19 +28,46 @@ Page({
     }
   },
 
-  groupByDate(list) {
-    const map = {}
+  groupByDateWithConcurrency(list) {
+    const dateMap = {}
     list.forEach(item => {
       const date = item.date || '未分组'
-      if (!map[date]) {
-        map[date] = []
-      }
-      map[date].push(item)
+      if (!dateMap[date]) dateMap[date] = []
+      dateMap[date].push(item)
     })
-    return Object.keys(map).map(date => ({
-      date: date,
-      list: map[date]
-    }))
+
+    return Object.keys(dateMap).map(date => {
+      const dayList = dateMap[date]
+      const sorted = dayList.slice().sort((a, b) => {
+        const cmp = (a.startTime || '').localeCompare(b.startTime || '')
+        return cmp !== 0 ? cmp : (a.sortOrder || 0) - (b.sortOrder || 0)
+      })
+
+      const rows = []
+      let i = 0
+      while (i < sorted.length) {
+        const group = [sorted[i]]
+        const endA = sorted[i].endTime || sorted[i].startTime || ''
+        let j = i + 1
+        while (j < sorted.length) {
+          const startB = sorted[j].startTime || ''
+          if (startB && endA && startB < endA) {
+            group.push(sorted[j])
+            const endB = sorted[j].endTime || sorted[j].startTime || ''
+            if (endB > endA) {
+              group[0] = { ...group[0], _rowEnd: endB }
+            }
+            j++
+          } else {
+            break
+          }
+        }
+        rows.push({ items: group, concurrent: group.length > 1 })
+        i = j
+      }
+
+      return { date, rows }
+    })
   },
 
   goBack() {
