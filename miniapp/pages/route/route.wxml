@@ -7,7 +7,7 @@
     <view class="nav-back" bindtap="goBack">
       <view class="nav-back-icon"></view>
     </view>
-    <text class="nav-title">参会路线</text>
+    <text class="nav-title">会议手册</text>
   </view>
 
   <!-- PDF直接展示 -->
@@ -30,48 +30,9 @@
     </view>
   </view>
 
-  <!-- 活动地址 -->
-  <view class="content-card">
-    <view class="section-title">
-      <text>活动地址</text>
-    </view>
-    <view class="address-row">
-      <view class="address-icon">
-        <view class="pin"></view>
-        <view class="pin-shadow"></view>
-      </view>
-      <view class="address-info">
-        <view class="address-text">{{activity.location || '暂无地址信息'}}</view>
-      </view>
-    </view>
-    <view class="nav-btn" bindtap="openNavigation" wx:if="{{activity.latitude}}">
-      <text>导航前往</text>
-    </view>
-  </view>
-
-  <!-- 交通说明 -->
-  <view class="content-card" wx:if="{{activity.trafficInfo}}">
-    <view class="section-title">
-      <text>交通说明</text>
-    </view>
-    <view class="transport-text">{{activity.trafficInfo}}</view>
-  </view>
-
   <!-- 无数据提示 -->
-    <view class="empty-tip" wx:if="{{!activity.location && !hasPdf && loaded}}">
-    <text>暂无路线信息</text>
-  </view>
-
-  <!-- 温馨提示 -->
-  <view class="content-card tip-card">
-    <view class="section-title tip-title">
-      <text>温馨提示</text>
-    </view>
-    <view class="tip-list">
-      <view class="tip-item">建议提前规划出行路线，预留充足的出行时间</view>
-      <view class="tip-item">如需停车，请提前了解停车场位置及收费标准</view>
-      <view class="tip-item">如有疑问，请联系活动工作人员</view>
-    </view>
+  <view class="empty-tip" wx:if="{{!hasPdf && loaded}}">
+    <text>暂无会议手册</text>
   </view>
 
   <!-- 底部返回首页按钮 -->
