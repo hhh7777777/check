@@ -60,7 +60,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="座位/酒店">
+        <el-form-item label="会议手册">
           <ImageUpload
             v-model="form.seatingBgImageFileID"
             v-model:url="form.seatingBgImageUrl"
@@ -69,7 +69,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="会议手册">
+        <el-form-item label="参会路线">
           <ImageUpload
             v-model="form.routeBgImageFileID"
             v-model:url="form.routeBgImageUrl"
@@ -87,8 +87,8 @@
           />
         </el-form-item>
 
-        <el-divider content-position="left">会议手册PDF</el-divider>
-        <el-form-item label="手册PDF">
+        <el-divider content-position="left">参会路线PDF</el-divider>
+        <el-form-item label="路线PDF">
           <PdfUpload
             v-model="form.routePdfFileID"
             v-model:url="form.routePdfUrl"

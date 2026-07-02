@@ -7,7 +7,7 @@
     <view class="nav-back" bindtap="goBack">
       <view class="nav-back-icon"></view>
     </view>
-    <text class="nav-title">会议手册</text>
+    <text class="nav-title">参会路线</text>
   </view>
 
   <!-- PDF直接展示 -->
@@ -58,8 +58,8 @@
   </view>
 
   <!-- 无数据提示 -->
-  <view class="empty-tip" wx:if="{{!activity.location && !hasPdf && loaded}}">
-    <text>暂无会议手册信息</text>
+    <view class="empty-tip" wx:if="{{!activity.location && !hasPdf && loaded}}">
+    <text>暂无路线信息</text>
   </view>
 
   <!-- 温馨提示 -->

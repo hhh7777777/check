@@ -63,11 +63,11 @@
             </view>
           </view>
         </view>
-        <!-- 座位/酒店 -->
-        <view class="card card-seating" style="{{seatingBgStyle}}" bindtap="goToPage" data-url="/pages/seating/seating">
+        <!-- 会议手册 -->
+        <view class="card card-seating" style="{{seatingBgStyle}}" bindtap="goToPage" data-url="/pages/route/route">
           <view class="card-text">
-            <view class="card-title">座位/酒店</view>
-            <view class="card-subtitle">SEATING<br/>HOTEL</view>
+            <view class="card-title">会议手册</view>
+            <view class="card-subtitle">CONFERENCE<br/>MANUAL</view>
           </view>
           <view class="card-icon-area" wx:if="{{!uiConfig.seatingBgImageUrl}}">
             <view class="icon-3d icon-building">
@@ -94,11 +94,11 @@
             </view>
           </view>
         </view>
-        <!-- 会议手册 -->
+        <!-- 参会路线 -->
         <view class="card card-route" style="{{routeBgStyle}}" bindtap="goToPage" data-url="/pages/route/route">
           <view class="card-text">
-            <view class="card-title">会议手册</view>
-            <view class="card-subtitle">CONFERENCE<br/>MANUAL</view>
+            <view class="card-title">参会路线</view>
+            <view class="card-subtitle">CONFERENCE<br/>ROUTE</view>
           </view>
           <view class="card-icon-area" wx:if="{{!uiConfig.routeBgImageUrl}}">
             <view class="icon-3d icon-map">
