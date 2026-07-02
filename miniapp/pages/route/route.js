@@ -6,6 +6,8 @@ Page({
     loaded: false,
     statusBarHeight: 0,
     hasPdf: false,
+    pdfUrl: '',
+    webViewError: false,
   },
 
   onLoad() {
@@ -22,7 +24,8 @@ Page({
         this.setData({
           activity,
           loaded: true,
-          hasPdf: !!(activity.routePdfUrl || activity.routePdfFileID)
+          hasPdf: !!(activity.routePdfUrl || activity.routePdfFileID),
+          pdfUrl: activity.routePdfUrl || '',
         })
       } else {
         this.setData({ loaded: true })
@@ -33,39 +36,14 @@ Page({
     }
   },
 
+  onWebViewError() {
+    this.setData({ webViewError: true })
+  },
+
   openPdf() {
-    const { activity } = this.data
-    const pdfUrl = activity.routePdfUrl
-    if (!pdfUrl) {
-      wx.showToast({ title: '暂无路线PDF', icon: 'none' })
-      return
-    }
-    wx.showLoading({ title: '下载中...' })
-    wx.downloadFile({
-      url: pdfUrl,
-      success(res) {
-        wx.hideLoading()
-        if (res.statusCode === 200) {
-          wx.openDocument({
-            filePath: res.tempFilePath,
-            fileType: 'pdf',
-            showMenu: true,
-            success() {},
-            fail(err) {
-              console.error('打开PDF失败', err)
-              wx.showToast({ title: '打开PDF失败', icon: 'none' })
-            }
-          })
-        } else {
-          wx.showToast({ title: 'PDF下载失败', icon: 'none' })
-        }
-      },
-      fail(err) {
-        wx.hideLoading()
-        console.error('下载PDF失败', err)
-        wx.showToast({ title: 'PDF下载失败', icon: 'none' })
-      }
-    })
+    const { pdfUrl } = this.data
+    if (!pdfUrl) return
+    wx.openDocument({ filePath: pdfUrl, fileType: 'pdf', showMenu: true })
   },
 
   openNavigation() {

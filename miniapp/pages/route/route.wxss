@@ -7,6 +7,20 @@
   box-sizing: border-box;
 }
 
+/* PDF内嵌展示 */
+.pdf-container {
+  width: 100%;
+  height: calc(100vh - 128rpx);
+  margin-bottom: 24rpx;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.pdf-webview {
+  width: 100%;
+  height: 100%;
+}
+
 .status-bar {
   width: 100%;
 }

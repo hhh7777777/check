@@ -7,7 +7,27 @@
     <view class="nav-back" bindtap="goBack">
       <view class="nav-back-icon"></view>
     </view>
-    <text class="nav-title">参会路线</text>
+    <text class="nav-title">会议手册</text>
+  </view>
+
+  <!-- PDF直接展示 -->
+  <view class="pdf-container" wx:if="{{hasPdf && pdfUrl}}">
+    <web-view src="{{pdfUrl}}" binderror="onWebViewError" class="pdf-webview"></web-view>
+  </view>
+
+  <!-- web-view失败时的回退 -->
+  <view class="content-card" wx:if="{{webViewError}}">
+    <view class="section-title">
+      <text>会议手册</text>
+    </view>
+    <view class="pdf-btn" bindtap="openPdf">
+      <view class="pdf-icon">PDF</view>
+      <view class="pdf-info">
+        <text class="pdf-label">点击查看会议手册</text>
+        <text class="pdf-desc">点击后在新窗口打开PDF</text>
+      </view>
+      <text class="pdf-arrow">›</text>
+    </view>
   </view>
 
   <!-- 活动地址 -->
@@ -29,21 +49,6 @@
     </view>
   </view>
 
-  <!-- 参会路线PDF -->
-  <view class="content-card" wx:if="{{hasPdf}}">
-    <view class="section-title">
-      <text>参会路线图</text>
-    </view>
-    <view class="pdf-btn" bindtap="openPdf">
-      <view class="pdf-icon">PDF</view>
-      <view class="pdf-info">
-        <text class="pdf-label">点击查看路线图</text>
-        <text class="pdf-desc">PDF文件，可缩放查看</text>
-      </view>
-      <text class="pdf-arrow">›</text>
-    </view>
-  </view>
-
   <!-- 交通说明 -->
   <view class="content-card" wx:if="{{activity.trafficInfo}}">
     <view class="section-title">
@@ -54,7 +59,7 @@
 
   <!-- 无数据提示 -->
   <view class="empty-tip" wx:if="{{!activity.location && !hasPdf && loaded}}">
-    <text>暂无路线信息</text>
+    <text>暂无会议手册信息</text>
   </view>
 
   <!-- 温馨提示 -->
