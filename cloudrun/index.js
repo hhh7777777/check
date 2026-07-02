@@ -68,6 +68,7 @@ const pdfUpload = multer({
 
 let accessTokenCache = { token: '', expiresAt: 0 };
 let accessTokenPromise = null;
+let adminCache = { data: null, expiresAt: 0 };
 
 function hasCloudCredentials() {
   return Boolean(CONFIG.envId && CONFIG.appId && CONFIG.appSecret);
@@ -513,20 +514,28 @@ async function uploadCloudFile(cloudPath, fileContent, contentType = 'applicatio
 
 async function enrichActivity(activity) {
   const next = { ...activity };
-  if (next.mapImageFileID) {
-    next.mapImageUrl = await getTempUrl(next.mapImageFileID);
-  }
-  if (next.coverImageFileID) {
-    next.coverImageUrl = await getTempUrl(next.coverImageFileID);
-  }
-  const bgFields = ['globalBgImageFileID', 'introBgImageFileID', 'scheduleBgImageFileID', 'badgeBgImageFileID', 'seatingBgImageFileID', 'routeBgImageFileID', 'liveBgImageFileID'];
-  for (const field of bgFields) {
-    if (next[field]) {
-      next[field.replace('FileID', 'Url')] = await getTempUrl(next[field]);
+  const urlMap = {};
+  const tasks = [];
+  const fields = [
+    ['mapImageFileID', 'mapImageUrl'],
+    ['coverImageFileID', 'coverImageUrl'],
+    ['globalBgImageFileID', 'globalBgImageUrl'],
+    ['introBgImageFileID', 'introBgImageUrl'],
+    ['scheduleBgImageFileID', 'scheduleBgImageUrl'],
+    ['badgeBgImageFileID', 'badgeBgImageUrl'],
+    ['seatingBgImageFileID', 'seatingBgImageUrl'],
+    ['routeBgImageFileID', 'routeBgImageUrl'],
+    ['liveBgImageFileID', 'liveBgImageUrl'],
+    ['routePdfFileID', 'routePdfUrl'],
+  ];
+  for (const [src, dst] of fields) {
+    if (next[src]) {
+      tasks.push(getTempUrl(next[src]).then((url) => { urlMap[dst] = url; }));
     }
   }
-  if (next.routePdfFileID) {
-    next.routePdfUrl = await getTempUrl(next.routePdfFileID);
+  await Promise.all(tasks);
+  for (const [src, dst] of fields) {
+    if (urlMap[dst]) next[dst] = urlMap[dst];
   }
   return next;
 }
@@ -719,6 +728,8 @@ async function importAttendees(activityId, rows) {
   const errors = [];
   let imported = 0;
   let nextCode = null;
+  const BATCH_SIZE = 50;
+  const batch = [];
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
@@ -746,7 +757,7 @@ async function importAttendees(activityId, rows) {
     } else {
       nextCode = `${nextCode.slice(0, -4)}${String(Number(nextCode.slice(-4)) + 1).padStart(4, '0')}`;
     }
-    await dbAdd(COLLECTIONS.attendees, {
+    batch.push({
       activityId,
       attendeeCode: nextCode,
       name: row.name,
@@ -762,6 +773,15 @@ async function importAttendees(activityId, rows) {
       updatedAt: nowIso(),
     });
     imported += 1;
+
+    if (batch.length >= BATCH_SIZE) {
+      await Promise.all(batch.map((doc) => dbAdd(COLLECTIONS.attendees, doc)));
+      batch.length = 0;
+    }
+  }
+
+  if (batch.length > 0) {
+    await Promise.all(batch.map((doc) => dbAdd(COLLECTIONS.attendees, doc)));
   }
 
   return { imported, errors };
@@ -779,10 +799,17 @@ function requireFields(body, fields) {
 
 async function updateActivityRecord(activityId, body) {
   const allowed = ['title', 'startTime', 'endTime', 'location', 'organizer', 'coOrganizer', 'description', 'trafficInfo', 'mapImageFileID', 'coverImageFileID', 'contactPhone', 'contactPerson', 'latitude', 'longitude', 'globalBgImageFileID', 'introBgImageFileID', 'scheduleBgImageFileID', 'badgeBgImageFileID', 'seatingBgImageFileID', 'routeBgImageFileID', 'liveBgImageFileID', 'routePdfFileID', 'globalTextColor', 'cardTitleColor', 'cardSubtitleColor', 'primaryColor', 'accentColor'];
+  const skipSz = new Set(['globalTextColor', 'cardTitleColor', 'cardSubtitleColor', 'primaryColor', 'accentColor']);
   const payload = { updatedAt: nowIso() };
   for (const key of allowed) {
     if (body[key] !== undefined) {
-      payload[key] = ['latitude', 'longitude'].includes(key) ? Number(body[key] || 0) : sz(body[key]);
+      if (['latitude', 'longitude'].includes(key)) {
+        payload[key] = Number(body[key] || 0);
+      } else if (skipSz.has(key)) {
+        payload[key] = normalizeText(body[key]);
+      } else {
+        payload[key] = sz(body[key]);
+      }
     }
   }
   if (Object.keys(payload).length <= 1) {
@@ -872,8 +899,12 @@ async function authMiddleware(req, res, next) {
   }
   try {
     const payload = jwt.verify(header.slice(7), CONFIG.jwtSecret);
-    const admins = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
-    const admin = admins.find((item) => item._id === payload.adminId);
+    const now = Date.now();
+    if (!adminCache.data || now > adminCache.expiresAt) {
+      const rows = (await getCollectionRows(LEGACY_COLLECTIONS.admins)).rows.map(normalizeAdmin);
+      adminCache = { data: rows, expiresAt: now + 60000 };
+    }
+    const admin = adminCache.data.find((item) => item._id === payload.adminId);
     if (!admin || admin.status !== 'active') {
       res.status(401).json({ error: '账号已停用、待审核或不存在' });
       return;
@@ -1155,7 +1186,7 @@ app.get('/api/admin/dashboard', authMiddleware, async (req, res, next) => {
   }
 });
 
-app.post('/api/admin/bootstrap', async (_req, res, next) => {
+app.post('/api/admin/bootstrap', authMiddleware, superAdminMiddleware, async (_req, res, next) => {
   try {
     await seedBaseData();
     const activities = await getActivities();
@@ -1365,7 +1396,18 @@ app.put('/api/admin/schedules/:id', authMiddleware, async (req, res, next) => {
 
 app.delete('/api/admin/schedules/:id', authMiddleware, async (req, res, next) => {
   try {
-    await dbRemoveDoc(COLLECTIONS.schedules, req.params.id);
+    const activity = await getAdminActivity(req);
+    const schedules = (await getCollectionRows(LEGACY_COLLECTIONS.schedules)).rows.map(normalizeSchedule);
+    const target = schedules.find((item) => item._id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: '日程不存在' });
+      return;
+    }
+    if (target.activityId !== activity._id) {
+      res.status(403).json({ error: '无权操作此日程' });
+      return;
+    }
+    await dbRemoveDoc(COLLECTIONS.schedules, target._id);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -1388,8 +1430,8 @@ app.get('/api/admin/attendees', authMiddleware, async (req, res, next) => {
     } else if (checkInStatus === 'notCheckedIn') {
       attendees = attendees.filter((item) => !item.checkedIn);
     }
-    const page = Number(req.query.page || 1);
-    const pageSize = Number(req.query.pageSize || 10);
+    const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
+    const pageSize = Math.min(200, Math.max(1, Math.floor(Number(req.query.pageSize) || 10)));
     res.json({
       list: attendees.slice((page - 1) * pageSize, page * pageSize),
       total: attendees.length,
@@ -1487,7 +1529,18 @@ app.put('/api/admin/attendees/:id', authMiddleware, async (req, res, next) => {
 
 app.delete('/api/admin/attendees/:id', authMiddleware, async (req, res, next) => {
   try {
-    await dbRemoveDoc(COLLECTIONS.attendees, req.params.id);
+    const activity = await getAdminActivity(req);
+    const attendees = (await getCollectionRows(LEGACY_COLLECTIONS.attendees)).rows.map(normalizeAttendee);
+    const target = attendees.find((item) => item._id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: '参会人员不存在' });
+      return;
+    }
+    if (target.activityId !== activity._id) {
+      res.status(403).json({ error: '无权操作此参会人员' });
+      return;
+    }
+    await dbRemoveDoc(COLLECTIONS.attendees, target._id);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -1666,7 +1719,7 @@ app.post('/api/attendee/query', publicRateLimit, async (req, res, next) => {
   }
 });
 
-app.get('/api/attendee/code/:attendeeCode', async (req, res, next) => {
+app.get('/api/attendee/code/:attendeeCode', publicRateLimit, async (req, res, next) => {
   try {
     const activity = await getCurrentActivity();
     if (!activity) {
@@ -1784,12 +1837,17 @@ app.use((error, req, res, _next) => {
   const statusCode = error.statusCode || 500;
   console.error(error);
   const origin = req.headers.origin;
-  if (origin) {
+  const allowed = !origin || CONFIG.corsOrigins.length === 0
+    || CONFIG.corsOrigins.includes('*')
+    || CONFIG.corsOrigins.includes(origin);
+  if (allowed && origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Activity-Id');
   }
-  res.status(statusCode).json({ error: error.message || '服务异常' });
+  const message = statusCode >= 500 && process.env.NODE_ENV === 'production'
+    ? '服务异常' : error.message || '服务异常';
+  res.status(statusCode).json({ error: message });
 });
 
 async function startServer() {

@@ -173,6 +173,8 @@ const load = async () => {
         if (data[key] !== undefined) form[key] = data[key]
       })
     }
+  } catch (err) {
+    ElMessage.error('加载配置失败: ' + (err.message || '未知错误'))
   } finally {
     loading.value = false
   }
@@ -187,6 +189,8 @@ const save = async () => {
     })
     await updateActivity(payload)
     ElMessage.success('保存成功')
+  } catch (err) {
+    ElMessage.error('保存失败: ' + (err.message || '未知错误'))
   } finally {
     saving.value = false
   }

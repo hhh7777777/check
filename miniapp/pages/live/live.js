@@ -1,13 +1,8 @@
 const api = require('../../utils/api')
-const qrcode = require('../../utils/qrcode')
-
-// 摄影师上传页面地址（部署云托管后替换为真实地址）
-const UPLOAD_BASE = 'https://your-cloud-run-url'
 
 Page({
   data: {
     currentImage: null,
-    uploadUrl: '',
     statusBarHeight: 0
   },
 
@@ -18,7 +13,8 @@ Page({
   },
 
   onShow() {
-    // 每30秒刷新最新图片
+    if (this._timer) { clearInterval(this._timer); this._timer = null }
+    this.loadLatestImage(true)
     this._timer = setInterval(() => {
       this.loadLatestImage(true)
     }, 30000)
@@ -37,23 +33,12 @@ Page({
       const res = await api.getLiveImages()
       if (res && res.data && res.data.length > 0) {
         this.setData({ currentImage: res.data[0] })
+      } else {
+        this.setData({ currentImage: null })
       }
     } catch (err) {
       console.error('获取图片失败', err)
     }
-  },
-
-  // 绘制二维码
-  drawQRCode(url) {
-    if (!url) return
-    qrcode.drawQRCodeToCanvas('#qrCanvas', url, {
-      foreground: '#000000',
-      background: '#ffffff',
-      margin: 4,
-      ecLevel: qrcode.EC_LEVEL.M
-    }).catch(err => {
-      console.error('绘制二维码失败', err)
-    })
   },
 
   previewImage() {

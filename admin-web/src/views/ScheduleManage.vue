@@ -123,10 +123,12 @@ const save = async () => {
 }
 
 const removeRow = async (row) => {
-  await ElMessageBox.confirm(`确认删除日程“${row.title}”吗？`, '提示', { type: 'warning' })
-  await deleteSchedule(row._id)
-  ElMessage.success('删除成功')
-  await load()
+  try {
+    await ElMessageBox.confirm(`确认删除日程"${row.title}"吗？`, '提示', { type: 'warning' })
+    await deleteSchedule(row._id)
+    ElMessage.success('删除成功')
+    await load()
+  } catch (_) {}
 }
 
 load()

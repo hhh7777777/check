@@ -1,5 +1,18 @@
 const api = require('../../utils/api')
 
+function safeUrl(url) {
+  if (typeof url !== 'string') return ''
+  const trimmed = url.trim()
+  if (/['"();\s]/.test(trimmed)) return ''
+  if (!trimmed.startsWith('https://') && !trimmed.startsWith('http://')) return ''
+  return trimmed
+}
+
+function safeColor(color) {
+  if (typeof color !== 'string') return ''
+  return /^#[0-9a-fA-F]{3,8}$|^rgba?\([^)]+\)$|^hsla?\([^)]+\)$/.test(color.trim()) ? color.trim() : ''
+}
+
 Page({
   data: {
     activity: {},
@@ -54,29 +67,30 @@ Page({
         ['liveBgImageUrl', 'liveBgStyle'],
       ]
       bgFields.forEach(([key, styleKey]) => {
-        if (cfg[key]) {
+        const url = safeUrl(cfg[key])
+        if (url) {
           uiConfig[key] = cfg[key]
-          updates[styleKey] = `background-image: url('${cfg[key]}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
+          updates[styleKey] = `background-image: url('${url}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
         }
       })
 
-      if (cfg.globalTextColor) {
+      if (safeColor(cfg.globalTextColor)) {
         uiConfig.globalTextColor = cfg.globalTextColor
         updates.globalTextStyle = `color: ${cfg.globalTextColor};`
       }
-      if (cfg.cardTitleColor) {
+      if (safeColor(cfg.cardTitleColor)) {
         uiConfig.cardTitleColor = cfg.cardTitleColor
         updates.cardTitleStyle = `color: ${cfg.cardTitleColor};`
       }
-      if (cfg.cardSubtitleColor) {
+      if (safeColor(cfg.cardSubtitleColor)) {
         uiConfig.cardSubtitleColor = cfg.cardSubtitleColor
         updates.cardSubtitleStyle = `color: ${cfg.cardSubtitleColor};`
       }
-      if (cfg.primaryColor) {
+      if (safeColor(cfg.primaryColor)) {
         uiConfig.primaryColor = cfg.primaryColor
         updates.primaryStyle = `color: ${cfg.primaryColor};`
       }
-      if (cfg.accentColor) {
+      if (safeColor(cfg.accentColor)) {
         uiConfig.accentColor = cfg.accentColor
         updates.accentStyle = `color: ${cfg.accentColor};`
       }

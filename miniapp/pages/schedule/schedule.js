@@ -36,10 +36,16 @@ Page({
       dateMap[date].push(item)
     })
 
+    const padTime = (t) => {
+      const s = String(t || '').trim()
+      const m = s.match(/^(\d{1,2}):(\d{2})$/)
+      return m ? m[1].padStart(2, '0') + ':' + m[2] : s
+    }
+
     return Object.keys(dateMap).map(date => {
       const dayList = dateMap[date]
       const sorted = dayList.slice().sort((a, b) => {
-        const cmp = (a.startTime || '').localeCompare(b.startTime || '')
+        const cmp = padTime(a.startTime).localeCompare(padTime(b.startTime))
         return cmp !== 0 ? cmp : (a.sortOrder || 0) - (b.sortOrder || 0)
       })
 
@@ -47,13 +53,13 @@ Page({
       let i = 0
       while (i < sorted.length) {
         const group = [sorted[i]]
-        const endA = sorted[i].endTime || sorted[i].startTime || ''
+        const endA = padTime(sorted[i].endTime || sorted[i].startTime || '')
         let j = i + 1
         while (j < sorted.length) {
-          const startB = sorted[j].startTime || ''
+          const startB = padTime(sorted[j].startTime || '')
           if (startB && endA && startB < endA) {
             group.push(sorted[j])
-            const endB = sorted[j].endTime || sorted[j].startTime || ''
+            const endB = padTime(sorted[j].endTime || sorted[j].startTime || '')
             if (endB > endA) {
               group[0] = { ...group[0], _rowEnd: endB }
             }

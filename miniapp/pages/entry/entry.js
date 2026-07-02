@@ -1,5 +1,13 @@
 const api = require('../../utils/api')
 
+function safeUrl(url) {
+  if (typeof url !== 'string') return ''
+  const trimmed = url.trim()
+  if (/['"();\s]/.test(trimmed)) return ''
+  if (!trimmed.startsWith('https://') && !trimmed.startsWith('http://')) return ''
+  return trimmed
+}
+
 Page({
   data: {
     statusBarHeight: 0,
@@ -31,9 +39,12 @@ Page({
     try {
       const res = await api.getUiConfig()
       if (res && res.data && res.data.globalBgImageUrl) {
-        this.setData({
-          globalBgStyle: `background-image: url('${res.data.globalBgImageUrl}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
-        })
+        const url = safeUrl(res.data.globalBgImageUrl)
+        if (url) {
+          this.setData({
+            globalBgStyle: `background-image: url('${url}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
+          })
+        }
       }
     } catch (err) {
       console.error('获取界面配置失败', err)
